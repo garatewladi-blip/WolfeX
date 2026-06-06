@@ -193,30 +193,28 @@ def generar_explicacion(res):
     xmin=res["xmin"]; xstr=np.array2string(xmin,precision=4,suppress_small=True)
     convergio="Convergencia" in reason
     if convergio:
-        exp1=f"""<div class="explain-box ok"><div class="explain-title">✅ Se encontró un mínimo local</div>
-<div class="explain-body">El algoritmo llegó al punto <strong>{xstr}</strong> donde f(x) = <strong>{fmin:.6g}</strong>.
-Es un <strong>mínimo</strong> porque el gradiente (la pendiente de la función) es prácticamente cero —
-su norma es <strong>{fe:.2e}</strong>, menor que la tolerancia. La función "deja de bajar" ahí.</div></div>"""
+        exp1=f"""<div class="explain-box ok">
+<div class="explain-title">Minimo encontrado</div>
+<div class="explain-body">Punto: <strong>{xstr}</strong> &nbsp;·&nbsp; f(x*) = <strong>{fmin:.6g}</strong> &nbsp;·&nbsp; Gradiente: <strong>{fe:.2e}</strong> (menor que la tolerancia).</div>
+</div>"""
     else:
-        exp1=f"""<div class="explain-box warn"><div class="explain-title">⚠️ No se confirmó convergencia</div>
-<div class="explain-body">El método se detuvo pero <strong>no porque encontró el mínimo</strong>. Error final: <strong>{fe:.2e}</strong>.
-Prueba aumentar las iteraciones máximas o cambiar el punto de partida.</div></div>"""
-    speeds={"Newton":("muy rápido — usa la curvatura (Hessiano) para predecir el mínimo.",
-                      "Pocas iteraciones son esperables. Si necesitó muchas, la función es muy no-lineal."),
-            "Gradiente conjugado":("moderadamente rápido — combina dirección actual con la anterior.",
-                                   "Más iteraciones que Newton es normal; mucho menos que gradiente puro."),
-            "Gradiente":("el más lento — avanza en la dirección de mayor descenso sin considerar curvatura.",
-                         "Muchas iteraciones son normales, especialmente en 'valles estrechos'.")}
-    spd,spd2=speeds.get(method,("",""))
-    exp2=f"""<div class="explain-box info"><div class="explain-title">🔁 ¿Por qué {iters} iteraciones?</div>
-<div class="explain-body">El método <strong>{method}</strong> es {spd}<br><br>{spd2}<br><br>
-Cada iteración calcula dirección de descenso + búsqueda de línea Wolfe (paso óptimo).
-Se repite hasta que el gradiente sea menor que la tolerancia.</div></div>"""
-    exp3="""<div class="explain-box info"><div class="explain-title">📌 ¿Mínimo local o global?</div>
-<div class="explain-body">Estos métodos garantizan un <strong>mínimo local</strong>.
-Para funciones convexas (x1²+x2²) el local <em>es</em> el global.
-Para no convexas (Rosenbrock), el resultado depende del punto de partida.
-Prueba distintos puntos iniciales si sospechas que hay un mínimo mejor.</div></div>"""
+        exp1=f"""<div class="explain-box warn">
+<div class="explain-title">Sin convergencia</div>
+<div class="explain-body">Se agotaron las iteraciones. Error final: <strong>{fe:.2e}</strong>. Aumenta el maximo de iteraciones o cambia el punto de partida.</div>
+</div>"""
+    speeds={"Newton":"Usa la curvatura (Hessiano) — converge rapido, pocas iteraciones.",
+            "Gradiente conjugado":"Combina la direccion actual con la anterior — velocidad intermedia.",
+            "Gradiente":"Sigue la pendiente mas pronunciada — el mas lento de los tres."}
+    spd=speeds.get(method,"")
+    tipo="local" if not convergio else ("global (la funcion es convexa)" if "x1" in res.get("expr","") and "sin" not in res.get("expr","") else "local")
+    exp2=f"""<div class="explain-box info">
+<div class="explain-title">{iters} iteraciones · {method}</div>
+<div class="explain-body">{spd} Cada paso: calcular gradiente → elegir direccion → busqueda de linea Wolfe → avanzar.</div>
+</div>"""
+    exp3=f"""<div class="explain-box info">
+<div class="explain-title">Tipo de minimo</div>
+<div class="explain-body">Minimo <strong>{tipo}</strong>. Si la funcion tiene varios valles, prueba distintos puntos de partida para encontrar el global.</div>
+</div>"""
     return exp1+exp2+exp3
 
 
@@ -559,7 +557,7 @@ with right:
         if res["comparacion"]:
             tab_offset = 1
             with tabs[1]:
-                st.markdown("#### 🔬 Comparación de los 3 métodos")
+                st.markdown("#### Comparacion de los 3 metodos")
                 comp=res["comparacion"]
                 col_names={"Gradiente":"#a78bfa","Gradiente conjugado":"#60a5fa","Newton":"#34d399"}
 
@@ -567,31 +565,39 @@ with right:
                 rows=[]
                 for met,r in comp.items():
                     fe2=r["history"][-1]["‖∇f‖"]
-                    rows.append({"Método":met,"Iteraciones":r["iters"],
+                    rows.append({"Metodo":met,"Iteraciones":r["iters"],
                                  "f(x*)":f"{r['fmin']:.6g}","Error final":f"{fe2:.2e}",
-                                 "Convergió":"✅" if "Convergencia" in r["reason"] else "⚠️"})
+                                 "Convergio":"Si" if "Convergencia" in r["reason"] else "No"})
                 st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
 
-                # Gráfico superpuesto
+                # Leyenda interactiva — checkboxes para mostrar/ocultar cada método
+                st.markdown("**Selecciona los metodos a mostrar en el grafico:**")
+                ca,cb2,cc=st.columns(3)
+                show_g  = ca.checkbox("Gradiente",  value=True, key="show_grad")
+                show_cg = cb2.checkbox("Gradiente conjugado", value=True, key="show_cg")
+                show_n  = cc.checkbox("Newton", value=True, key="show_newt")
+                show_map = {"Gradiente":show_g,"Gradiente conjugado":show_cg,"Newton":show_n}
+
                 fig2,ax2=plt.subplots(figsize=(10,4.5))
                 fig2.patch.set_facecolor("#07090f"); ax2.set_facecolor("#0d1117")
-                all_errs=[]
                 for met,r in comp.items():
+                    if not show_map.get(met,True): continue
                     e=np.array([h["‖∇f‖"] for h in r["history"]])
                     it=np.array([h["iteración"] for h in r["history"]])
-                    all_errs.extend(e[e>0].tolist())
                     c=col_names[met]
-                    ax2.semilogy(it,np.maximum(e,1e-16),color=c,lw=2.2,marker="o",ms=4,
-                                 markerfacecolor="#07090f",markeredgecolor=c,markeredgewidth=1.5,label=met)
-                ax2.set_xlabel("Iteración",color="#475569",fontsize=10)
-                ax2.set_ylabel("‖∇f‖ (log)",color="#475569",fontsize=10)
-                ax2.set_title("Convergencia comparada — 3 métodos",color="#e2e8f0",fontsize=12,fontweight="bold")
+                    ax2.semilogy(it,np.maximum(e,1e-16),color=c,lw=2.5,marker="o",ms=5,
+                                 markerfacecolor="#07090f",markeredgecolor=c,markeredgewidth=2,label=met)
+                    ax2.fill_between(it,1e-16,np.maximum(e,1e-16),alpha=0.06,color=c)
+                ax2.set_xlabel("Iteracion",color="#475569",fontsize=10)
+                ax2.set_ylabel("Error (log)",color="#475569",fontsize=10)
+                ax2.set_title("Convergencia comparada",color="#e2e8f0",fontsize=12,fontweight="bold")
                 ax2.tick_params(colors="#334155",labelsize=8)
                 for s in ax2.spines.values(): s.set_color("#1e293b")
                 ax2.grid(True,alpha=0.3,color="#1e293b",linestyle="--")
-                ax2.legend(fontsize=9,framealpha=0.1)
+                if any(show_map.values()):
+                    ax2.legend(fontsize=9,framealpha=0.1)
                 fig2.tight_layout(); st.pyplot(fig2)
-                st.caption("El método que baja más rápido es el más eficiente para esta función y punto de partida.")
+                st.caption("Desmarca un metodo para ocultarlo y comparar solo los que te interesan.")
 
         # ── TAB: Trayectoria 2D ──
         with tabs[1+tab_offset]:
@@ -612,38 +618,88 @@ with right:
                             except: Z[ii,jj]=np.nan
                     Z=np.where(np.isfinite(Z),Z,np.nan)
 
-                    fig3,ax3=plt.subplots(figsize=(8,7))
-                    fig3.patch.set_facecolor("#07090f"); ax3.set_facecolor("#0d1117")
+                    # Slider para ver iteración por iteración
+                    n_iters=len(xs)
+                    if n_iters > 1:
+                        st.markdown("**Ver iteracion a iteracion — mueve el slider:**")
+                        iter_sel=st.slider("Iteracion", 1, n_iters-1, n_iters-1, key="iter_slider",
+                                           help="Mueve para ver cómo avanza el algoritmo paso a paso")
+                        xs_vis=xs[:iter_sel+1]
+                        h_sel=res["history"][iter_sel]
+                        st.markdown(f"""
+                        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px;">
+                          <div style="background:#0d1117;border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:0.8rem;text-align:center;">
+                            <div style="font-size:0.68rem;color:#475569;text-transform:uppercase;margin-bottom:4px;">Iteracion</div>
+                            <div style="font-family:JetBrains Mono,monospace;color:#a78bfa;font-size:1.1rem;font-weight:600;">{iter_sel}</div>
+                          </div>
+                          <div style="background:#0d1117;border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:0.8rem;text-align:center;">
+                            <div style="font-size:0.68rem;color:#475569;text-transform:uppercase;margin-bottom:4px;">f(x)</div>
+                            <div style="font-family:JetBrains Mono,monospace;color:#34d399;font-size:1.1rem;font-weight:600;">{h_sel['f(x)']:.5g}</div>
+                          </div>
+                          <div style="background:#0d1117;border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:0.8rem;text-align:center;">
+                            <div style="font-size:0.68rem;color:#475569;text-transform:uppercase;margin-bottom:4px;">Error</div>
+                            <div style="font-family:JetBrains Mono,monospace;color:#60a5fa;font-size:1.1rem;font-weight:600;">{h_sel['‖∇f‖']:.2e}</div>
+                          </div>
+                        </div>
+                        <div style="background:#0d1117;border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:0.7rem 1rem;margin-bottom:10px;font-size:0.82rem;color:#64748b;">
+                          Posicion actual: <span style="color:#e2e8f0;font-family:JetBrains Mono,monospace;">{np.array2string(xs_vis[-1],precision=4,suppress_small=True)}</span>
+                          &nbsp;·&nbsp; {"Convergiendo..." if iter_sel < n_iters-1 else "Minimo encontrado"}
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        xs_vis=xs
+                        iter_sel=0
+
+                    col_traj={"Gradiente":"#a78bfa","Gradiente conjugado":"#60a5fa","Newton":"#34d399"}.get(res["method"],"#a78bfa")
+
+                    fig3,axes=plt.subplots(1,2,figsize=(13,6))
+                    fig3.patch.set_facecolor("#07090f")
+
+                    # Izq: trayectoria
+                    ax3=axes[0]; ax3.set_facecolor("#0d1117")
                     levels=np.percentile(Z[np.isfinite(Z)],np.linspace(2,98,35))
                     levels=np.unique(levels)
                     if len(levels)>1:
                         cs=ax3.contourf(GX,GY,Z,levels=levels,cmap="plasma",alpha=0.4)
                         ax3.contour(GX,GY,Z,levels=levels,colors="white",alpha=0.12,linewidths=0.5)
                         cb=fig3.colorbar(cs,ax=ax3,pad=0.02)
-                        cb.ax.tick_params(colors="#64748b",labelsize=7); cb.set_label("f(x)",color="#64748b",fontsize=8)
-
-                    col_traj=colors.get(res["method"],"#a78bfa")
-                    ax3.plot(xs[:,0],xs[:,1],"o-",color=col_traj,lw=1.8,ms=4,
-                             markerfacecolor="#07090f",markeredgecolor=col_traj,markeredgewidth=1.5,
-                             label="Trayectoria",zorder=5)
+                        cb.ax.tick_params(colors="#64748b",labelsize=7)
+                    ax3.plot(xs_vis[:,0],xs_vis[:,1],"o-",color=col_traj,lw=1.8,ms=4,
+                             markerfacecolor="#07090f",markeredgecolor=col_traj,markeredgewidth=1.5,zorder=5)
                     ax3.plot(xs[0,0],xs[0,1],"s",color="white",ms=10,label="Inicio",zorder=6)
-                    ax3.plot(xs[-1,0],xs[-1,1],"*",color="#fbbf24",ms=18,label="Mínimo",zorder=7)
-                    for ii,(px,py) in enumerate(zip(xs[:,0],xs[:,1])):
-                        if ii%max(1,len(xs)//8)==0:
-                            ax3.annotate(str(ii),xy=(px,py),fontsize=6,color="#94a3b8",
+                    ax3.plot(xs_vis[-1,0],xs_vis[-1,1],"*",color="#fbbf24",ms=16,label=f"Iter {iter_sel}",zorder=7)
+                    for ii,(px,py) in enumerate(zip(xs_vis[:,0],xs_vis[:,1])):
+                        if ii%max(1,len(xs_vis)//8)==0:
+                            ax3.annotate(str(ii),xy=(px,py),fontsize=7,color="#94a3b8",
                                          xytext=(4,4),textcoords="offset points")
                     ax3.set_xlabel("x1",color="#475569",fontsize=10)
                     ax3.set_ylabel("x2",color="#475569",fontsize=10)
-                    ax3.set_title(f"Trayectoria — {res['method']}",color="#e2e8f0",fontsize=12,fontweight="bold")
+                    ax3.set_title(f"Trayectoria — {res['method']}",color="#e2e8f0",fontsize=11,fontweight="bold")
                     ax3.tick_params(colors="#334155",labelsize=8)
                     for s in ax3.spines.values(): s.set_color("#1e293b")
-                    ax3.legend(fontsize=9,framealpha=0.15,loc="upper right")
+                    ax3.legend(fontsize=8,framealpha=0.15)
+
+                    # Der: error hasta esta iteración
+                    ax4=axes[1]; ax4.set_facecolor("#0d1117")
+                    errs_full=np.array([h["‖∇f‖"] for h in res["history"]])
+                    its_full=np.array([h["iteración"] for h in res["history"]])
+                    ax4.semilogy(its_full,np.maximum(errs_full,1e-16),color="#334155",lw=1.5,linestyle="--",alpha=0.5)
+                    ax4.semilogy(its_full[:iter_sel+1],np.maximum(errs_full[:iter_sel+1],1e-16),
+                                 color=col_traj,lw=2.5,marker="o",ms=4,
+                                 markerfacecolor="#07090f",markeredgecolor=col_traj,markeredgewidth=2)
+                    ax4.axvline(x=iter_sel,color="#fbbf24",lw=1.2,linestyle=":",alpha=0.8)
+                    ax4.set_xlabel("Iteracion",color="#475569",fontsize=10)
+                    ax4.set_ylabel("Error (log)",color="#475569",fontsize=10)
+                    ax4.set_title("Error en cada paso",color="#e2e8f0",fontsize=11,fontweight="bold")
+                    ax4.tick_params(colors="#334155",labelsize=8)
+                    for s in ax4.spines.values(): s.set_color("#1e293b")
+                    ax4.grid(True,alpha=0.3,color="#1e293b",linestyle="--")
                     fig3.tight_layout(); st.pyplot(fig3)
-                    st.caption("⬛ = inicio | ⭐ = mínimo encontrado. Los números muestran el orden de las iteraciones. Las curvas de nivel muestran el 'relieve' de la función.")
+                    st.caption("Mueve el slider para ver como avanza el algoritmo. Izquierda: posicion en el espacio. Derecha: error en ese momento.")
                 except Exception as ex:
-                    st.warning(f"No se pudo graficar la trayectoria: {ex}")
+                    st.warning(f"No se pudo graficar: {ex}")
             else:
-                st.info(f"La trayectoria 2D solo está disponible para funciones de 2 variables. Tu función tiene {res['n']} variables.")
+                st.info(f"La trayectoria 2D requiere exactamente 2 variables. Tu funcion tiene {res['n']}.")
 
         # ── TAB: Historial ──
         with tabs[2+tab_offset]:
@@ -654,36 +710,34 @@ with right:
             } for h in res["history"]])
             st.dataframe(df,use_container_width=True,hide_index=True)
             csv=df.to_csv(index=False).encode("utf-8")
-            st.download_button("⬇️ Descargar CSV",csv,"historial_wolfex.csv","text/csv",use_container_width=True)
+            st.download_button("Descargar CSV",csv,"historial_wolfex.csv","text/csv",use_container_width=True)
 
         # ── TAB: Explicación detallada ──
         with tabs[3+tab_offset]:
-            st.markdown("### 🧠 Explicación completa del resultado")
+            st.markdown("### Explicacion completa")
             st.markdown(generar_explicacion(res), unsafe_allow_html=True)
-
-            # Glosario rápido
             st.markdown("---")
-            st.markdown("#### 📖 Glosario rápido")
+            st.markdown("#### Glosario")
             g1,g2=st.columns(2)
             with g1:
                 st.markdown("""
-**Gradiente ‖∇f‖**
-La "pendiente" de la función en un punto. Si es 0, estamos en un mínimo (o máximo).
+**Gradiente**
+La pendiente de la funcion en un punto. Si es 0, estamos en un minimo.
 
 **Hessiano**
-Matriz de segundas derivadas. Describe la curvatura de la función. Newton lo usa para predecir el mínimo.
+Matriz de segundas derivadas. Describe la curvatura. Newton lo usa para predecir el minimo.
 
-**Condición de Wolfe**
-Regla matemática que garantiza que el tamaño del paso sea ni muy grande ni muy pequeño en cada iteración.
+**Condicion de Wolfe**
+Regla que garantiza que el paso sea ni muy grande ni muy pequeno.
 """)
             with g2:
                 st.markdown("""
 **Convergencia**
-El algoritmo convergió = el gradiente bajó por debajo de la tolerancia ε. Encontró el mínimo.
+El gradiente bajo por debajo de la tolerancia. El algoritmo encontro el minimo.
 
-**Tolerancia ε**
-Qué tan pequeño debe ser el gradiente para declarar convergencia. Valor por defecto: 1e-6.
+**Tolerancia**
+Que tan pequeno debe ser el gradiente para declarar convergencia. Por defecto: 1e-6.
 
-**Mínimo local vs global**
-Local = el más bajo en la vecindad. Global = el más bajo de toda la función. Para funciones convexas coinciden.
+**Minimo local vs global**
+Local = el mas bajo en la vecindad. Global = el mas bajo de toda la funcion.
 """)
