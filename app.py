@@ -5,6 +5,11 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import time
+try:
+    import plotly.graph_objects as go
+    HAS_PLOTLY = True
+except ImportError:
+    HAS_PLOTLY = False
 
 st.set_page_config(
     page_title="WolfeX · Optimizador",
@@ -570,34 +575,68 @@ with right:
                                  "Convergio":"Si" if "Convergencia" in r["reason"] else "No"})
                 st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
 
-                # Leyenda interactiva — checkboxes para mostrar/ocultar cada método
-                st.markdown("**Selecciona los metodos a mostrar en el grafico:**")
-                ca,cb2,cc=st.columns(3)
-                show_g  = ca.checkbox("Gradiente",  value=True, key="show_grad")
-                show_cg = cb2.checkbox("Gradiente conjugado", value=True, key="show_cg")
-                show_n  = cc.checkbox("Newton", value=True, key="show_newt")
-                show_map = {"Gradiente":show_g,"Gradiente conjugado":show_cg,"Newton":show_n}
+                st.markdown("**Haz clic en un nombre de la leyenda para mostrar u ocultar esa linea:**")
 
-                fig2,ax2=plt.subplots(figsize=(10,4.5))
-                fig2.patch.set_facecolor("#07090f"); ax2.set_facecolor("#0d1117")
-                for met,r in comp.items():
-                    if not show_map.get(met,True): continue
-                    e=np.array([h["‖∇f‖"] for h in r["history"]])
-                    it=np.array([h["iteración"] for h in r["history"]])
-                    c=col_names[met]
-                    ax2.semilogy(it,np.maximum(e,1e-16),color=c,lw=2.5,marker="o",ms=5,
-                                 markerfacecolor="#07090f",markeredgecolor=c,markeredgewidth=2,label=met)
-                    ax2.fill_between(it,1e-16,np.maximum(e,1e-16),alpha=0.06,color=c)
-                ax2.set_xlabel("Iteracion",color="#475569",fontsize=10)
-                ax2.set_ylabel("Error (log)",color="#475569",fontsize=10)
-                ax2.set_title("Convergencia comparada",color="#e2e8f0",fontsize=12,fontweight="bold")
-                ax2.tick_params(colors="#334155",labelsize=8)
-                for s in ax2.spines.values(): s.set_color("#1e293b")
-                ax2.grid(True,alpha=0.3,color="#1e293b",linestyle="--")
-                if any(show_map.values()):
+                if HAS_PLOTLY:
+                    fig2 = go.Figure()
+                    for met, r in comp.items():
+                        e  = np.array([h["‖∇f‖"] for h in r["history"]])
+                        it = np.array([h["iteración"] for h in r["history"]])
+                        c  = col_names[met]
+                        e_log = np.maximum(e, 1e-16)
+                        hover = [f"Iteracion: {i}<br>Error: {ev:.4e}<br>f(x): {r['history'][i]['f(x)']:.6g}"
+                                 for i, ev in zip(it, e)]
+                        fig2.add_trace(go.Scatter(
+                            x=it, y=e_log, name=met,
+                            mode="lines+markers",
+                            line=dict(color=c, width=3),
+                            marker=dict(size=7, color="#07090f",
+                                        line=dict(color=c, width=2)),
+                            hovertext=hover, hoverinfo="text",
+                            fill="tozeroy",
+                            fillcolor=c.replace("#","rgba(").replace("a78bfa","167,139,250,0.06)").replace("60a5fa","96,165,250,0.06)").replace("34d399","52,211,153,0.06)"),
+                        ))
+                    fig2.update_layout(
+                        paper_bgcolor="#07090f", plot_bgcolor="#0d1117",
+                        font=dict(color="#94a3b8", family="Inter"),
+                        title=dict(text="Convergencia comparada — clic en leyenda para filtrar",
+                                   font=dict(color="#e2e8f0", size=14)),
+                        xaxis=dict(title="Iteracion", gridcolor="#1e293b",
+                                   linecolor="#1e293b", tickcolor="#334155"),
+                        yaxis=dict(title="Error (log)", type="log",
+                                   gridcolor="#1e293b", linecolor="#1e293b",
+                                   tickcolor="#334155"),
+                        legend=dict(
+                            bgcolor="rgba(13,17,23,0.8)",
+                            bordercolor="rgba(255,255,255,0.1)",
+                            borderwidth=1,
+                            font=dict(size=13),
+                            itemclick="toggle",
+                            itemdoubleclick="toggleothers",
+                        ),
+                        hovermode="x unified",
+                        height=420,
+                        margin=dict(l=50,r=20,t=50,b=50),
+                    )
+                    st.plotly_chart(fig2, use_container_width=True)
+                    st.caption("Clic en un nombre = mostrar/ocultar esa linea. Doble clic = ver solo esa. Pasa el mouse sobre los puntos para ver el error exacto.")
+                else:
+                    # Fallback matplotlib
+                    fig2,ax2=plt.subplots(figsize=(10,4.5))
+                    fig2.patch.set_facecolor("#07090f"); ax2.set_facecolor("#0d1117")
+                    for met,r in comp.items():
+                        e=np.array([h["‖∇f‖"] for h in r["history"]])
+                        it=np.array([h["iteración"] for h in r["history"]])
+                        c=col_names[met]
+                        ax2.semilogy(it,np.maximum(e,1e-16),color=c,lw=2.5,marker="o",ms=5,
+                                     markerfacecolor="#07090f",markeredgecolor=c,markeredgewidth=2,label=met)
+                    ax2.set_xlabel("Iteracion",color="#475569",fontsize=10)
+                    ax2.set_ylabel("Error (log)",color="#475569",fontsize=10)
+                    ax2.tick_params(colors="#334155",labelsize=8)
+                    for s in ax2.spines.values(): s.set_color("#1e293b")
+                    ax2.grid(True,alpha=0.3,color="#1e293b",linestyle="--")
                     ax2.legend(fontsize=9,framealpha=0.1)
-                fig2.tight_layout(); st.pyplot(fig2)
-                st.caption("Desmarca un metodo para ocultarlo y comparar solo los que te interesan.")
+                    fig2.tight_layout(); st.pyplot(fig2)
 
         # ── TAB: Trayectoria 2D ──
         with tabs[1+tab_offset]:
