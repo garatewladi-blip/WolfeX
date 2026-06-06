@@ -493,37 +493,125 @@ with right:
 
     if res is None:
         st.markdown("""
-        <div style="padding:4rem 2rem;text-align:center;">
-          <div style="font-size:3.5rem;font-weight:800;letter-spacing:-2px;
+        <div style="padding:2.5rem 2rem 1rem;text-align:center;">
+          <div style="font-size:3.2rem;font-weight:800;letter-spacing:-2px;
                background:linear-gradient(135deg,#fff 0%,#a78bfa 50%,#60a5fa 100%);
                -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-               margin-bottom:1rem;">
+               margin-bottom:0.8rem;">
             Optimización<br>Numérica
           </div>
-          <div style="color:#334155;font-size:0.95rem;max-width:420px;margin:0 auto 2.5rem;line-height:1.8;">
+          <div style="color:#334155;font-size:0.93rem;max-width:420px;margin:0 auto 1.5rem;line-height:1.8;">
             Encuentra el punto mínimo de cualquier función matemática usando tres algoritmos clásicos,
             todos con búsqueda de línea que cumple las condiciones de Wolfe.
           </div>
-          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;max-width:500px;margin:0 auto 2rem;">
-            <div style="background:#0d1117;border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:1.3rem 0.8rem;text-align:center;">
-              <div style="font-size:2rem">▽</div>
-              <div style="font-weight:600;color:#c4b5fd;margin:6px 0 2px;font-size:0.85rem;">Gradiente</div>
-              <div style="font-size:0.72rem;color:#334155;">Descenso clásico</div>
-            </div>
-            <div style="background:#0d1117;border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:1.3rem 0.8rem;text-align:center;">
-              <div style="font-size:2rem">⇉</div>
-              <div style="font-weight:600;color:#60a5fa;margin:6px 0 2px;font-size:0.85rem;">Conjugado</div>
-              <div style="font-size:0.72rem;color:#334155;">Polak-Ribière</div>
-            </div>
-            <div style="background:#0d1117;border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:1.3rem 0.8rem;text-align:center;">
-              <div style="font-size:2rem">⊕</div>
-              <div style="font-weight:600;color:#34d399;margin:6px 0 2px;font-size:0.85rem;">Newton</div>
-              <div style="font-size:0.72rem;color:#334155;">Hessiano reg.</div>
-            </div>
+          <div style="color:#475569;font-size:0.82rem;margin-bottom:1rem;">
+            👇 Toca un método para conocerlo
           </div>
-          <div style="color:#1e293b;font-size:0.85rem;">
-            ← Configura los parámetros y presiona <strong style="color:#a78bfa">⚡ Ejecutar</strong>
-          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if "info_metodo" not in st.session_state:
+            st.session_state.info_metodo = None
+
+        # Botones interactivos de métodos
+        b1, b2, b3 = st.columns(3)
+
+        info_metodos = {
+            "Gradiente": {
+                "icon": "▽", "color": "#c4b5fd", "bcolor": "rgba(167,139,250,0.15)",
+                "border": "rgba(167,139,250,0.4)", "sub": "Descenso clásico",
+                "titulo": "▽ Método del Gradiente",
+                "que_es": "Es el método más simple de optimización. Funciona como bajar una montaña siguiendo siempre la pendiente más pronunciada hacia abajo.",
+                "como": "En cada paso calcula el gradiente (la dirección de mayor subida) y se mueve en dirección contraria (la de mayor bajada). Luego usa las condiciones de Wolfe para decidir cuánto avanzar.",
+                "cuando": "Úsalo cuando quieras algo seguro y confiable. Es más lento que los otros dos, especialmente en funciones con 'valles estrechos', pero nunca falla.",
+                "velocidad": "🐢 Lento — puede necesitar muchas iteraciones",
+                "ejemplo": "Ideal para: x1² + x2², funciones suaves y convexas.",
+            },
+            "Gradiente conjugado": {
+                "icon": "⇉", "color": "#60a5fa", "bcolor": "rgba(96,165,250,0.15)",
+                "border": "rgba(96,165,250,0.4)", "sub": "Polak-Ribière",
+                "titulo": "⇉ Método del Gradiente Conjugado",
+                "que_es": "Una versión mejorada del gradiente. En vez de ir siempre en línea recta hacia abajo, combina la dirección actual con la dirección anterior para avanzar de forma más inteligente.",
+                "como": "Calcula un factor β (beta) que mezcla la dirección actual con la del paso anterior, generando 'direcciones conjugadas' que no se repiten ni se anulan entre sí. Usa Polak-Ribière para calcular β.",
+                "cuando": "Úsalo cuando el gradiente simple sea muy lento. Es mucho más rápido en funciones cuadráticas y funciona bien en problemas grandes.",
+                "velocidad": "🚶 Moderado — significativamente más rápido que el gradiente puro",
+                "ejemplo": "Ideal para: funciones cuadráticas, problemas de tamaño mediano.",
+            },
+            "Newton": {
+                "icon": "⊕", "color": "#34d399", "bcolor": "rgba(52,211,153,0.15)",
+                "border": "rgba(52,211,153,0.4)", "sub": "Hessiano regularizado",
+                "titulo": "⊕ Método de Newton",
+                "que_es": "El más sofisticado de los tres. Además de saber la pendiente (gradiente), también usa la curvatura de la función (Hessiano) para predecir dónde está el mínimo con mucha más precisión.",
+                "como": "Resuelve el sistema H·d = -g en cada paso, donde H es la matriz Hessiana (curvatura) y g es el gradiente. Si el Hessiano no es positivo definido, la app lo regulariza automáticamente para evitar errores.",
+                "cuando": "Úsalo casi siempre — es el más rápido. Solo puede ser más lento si la función es muy no-lineal o el Hessiano es difícil de calcular.",
+                "velocidad": "🚀 Muy rápido — converge en pocas iteraciones",
+                "ejemplo": "Ideal para: cualquier función diferenciable, especialmente Rosenbrock.",
+            },
+        }
+
+        for lbl, col in [("Gradiente",b1),("Gradiente conjugado",b2),("Newton",b3)]:
+            m = info_metodos[lbl]
+            activo = st.session_state.info_metodo == lbl
+            with col:
+                st.markdown(f"""
+                <div style="background:{''+m['bcolor'] if activo else '#0d1117'};
+                     border:{'2px' if activo else '1px'} solid {m['border'] if activo else 'rgba(255,255,255,0.06)'};
+                     border-radius:16px;padding:1.4rem 0.8rem;text-align:center;margin-bottom:8px;">
+                  <div style="font-size:2.2rem;margin-bottom:8px;">{m['icon']}</div>
+                  <div style="font-weight:700;color:{m['color']};font-size:0.9rem;">{lbl.split()[0]}</div>
+                  <div style="font-size:0.7rem;color:#334155;margin-top:3px;">{m['sub']}</div>
+                  <div style="font-size:0.7rem;color:{m['color']};margin-top:8px;opacity:0.8;">
+                    {'▲ cerrar' if activo else '▼ ver más'}
+                  </div>
+                </div>
+                """, unsafe_allow_html=True)
+                if col.button(
+                    f"{'✓ ' if activo else ''}{lbl.split()[0]}",
+                    key=f"info_{lbl}",
+                    use_container_width=True,
+                    type="primary" if activo else "secondary"
+                ):
+                    st.session_state.info_metodo = None if activo else lbl
+                    st.rerun()
+
+        # Panel de información del método seleccionado
+        if st.session_state.info_metodo:
+            m = info_metodos[st.session_state.info_metodo]
+            st.markdown(f"""
+            <div style="background:{m['bcolor']};border:1.5px solid {m['border']};
+                 border-radius:16px;padding:1.8rem 2rem;margin-top:0.5rem;">
+              <div style="font-size:1.2rem;font-weight:700;color:{m['color']};margin-bottom:1.2rem;">
+                {m['titulo']}
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+                <div>
+                  <div style="font-size:0.7rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">¿Qué es?</div>
+                  <div style="font-size:0.88rem;color:#cbd5e1;line-height:1.6;">{m['que_es']}</div>
+                </div>
+                <div>
+                  <div style="font-size:0.7rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">¿Cómo funciona?</div>
+                  <div style="font-size:0.88rem;color:#cbd5e1;line-height:1.6;">{m['como']}</div>
+                </div>
+                <div>
+                  <div style="font-size:0.7rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">¿Cuándo usarlo?</div>
+                  <div style="font-size:0.88rem;color:#cbd5e1;line-height:1.6;">{m['cuando']}</div>
+                </div>
+                <div>
+                  <div style="font-size:0.7rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">Velocidad</div>
+                  <div style="font-size:0.88rem;color:{m['color']};font-weight:600;">{m['velocidad']}</div>
+                  <div style="font-size:0.8rem;color:#475569;margin-top:8px;">{m['ejemplo']}</div>
+                </div>
+              </div>
+              <div style="margin-top:1.2rem;padding-top:1rem;border-top:1px solid rgba(255,255,255,0.06);
+                   font-size:0.82rem;color:#475569;text-align:center;">
+                💡 Selecciona este método en el panel izquierdo y presiona ⚡ Ejecutar para probarlo
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("""
+        <div style="text-align:center;color:#1e293b;font-size:0.82rem;margin-top:1.5rem;">
+          ← Configura los parámetros y presiona <strong style="color:#a78bfa">⚡ Ejecutar</strong>
         </div>
         """, unsafe_allow_html=True)
 
