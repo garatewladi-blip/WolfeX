@@ -622,7 +622,11 @@ Luego se verifica curvatura. Si alguna falla, α ← ρ·α y se repite.
                 st.info("Solo hay 1 iteracion — el punto inicial ya era el minimo.")
             else:
                 st.markdown("### Verificacion numerica iteracion a iteracion")
-                iter_w = st.slider("Selecciona la iteracion:", 1, n_show, 1, key="wolfe_slider")
+                if n_show == 1:
+                    iter_w = 1
+                    st.info("Solo hubo 1 iteracion de busqueda de linea.")
+                else:
+                    iter_w = st.slider("Selecciona la iteracion:", 1, n_show, 1, key="wolfe_slider")
 
                 h_prev = hist[iter_w - 1]
                 h_curr = hist[iter_w]
