@@ -520,14 +520,22 @@ with right:
         ia.info(f"**Error final ‖∇f‖:** `{fe:.4e}`")
         ib.info(f"**Función:** `{res['expr']}`")
 
-        # Tabs — sin explicación duplicada arriba
+        # Tabs — índices fijos sin depender de comparacion
         tab_labels = ["📈 Convergencia", "🔍 Iteraciones Wolfe", "🗺️ Trayectoria 2D", "📊 Historial", "🧠 Explicación"]
-        if res["comparacion"]: tab_labels.insert(1, "🔬 Comparador")
+        if res["comparacion"]:
+            tab_labels.insert(2, "🔬 Comparador")
         tabs = st.tabs(tab_labels)
-        tab_offset = 1 if res["comparacion"] else 0
 
-        # ── TAB 1: Convergencia ──
-        with tabs[0]:
+        # Índices nombrados — nunca se confunden
+        IDX_CONV  = 0
+        IDX_WOLFE = 1
+        IDX_COMP  = 2 if res["comparacion"] else None
+        IDX_TRAY  = 3 if res["comparacion"] else 2
+        IDX_HIST  = 4 if res["comparacion"] else 3
+        IDX_EXPL  = 5 if res["comparacion"] else 4
+
+        # ── TAB: Convergencia ──
+        with tabs[IDX_CONV]:
             errs=np.array([h["‖∇f‖"] for h in res["history"]])
             its=np.array([h["iteración"] for h in res["history"]])
             pos=errs[errs>0]; use_log=len(pos)>=2 and errs.max()/pos.min()>100
@@ -554,7 +562,7 @@ with right:
             st.caption("Cada punto es una iteración. Cuando la curva llega abajo → el algoritmo encontró el mínimo.")
 
         # ── TAB: Iteraciones Wolfe ──
-        with tabs[1]:
+        with tabs[IDX_WOLFE]:
 
             hist = res["history"]
             n_show = min(len(hist)-1, 20)
@@ -782,7 +790,7 @@ Luego se verifica curvatura. Si alguna falla, α ← ρ·α y se repite.
 
         # ── TAB COMPARADOR (opcional) ──
         if res["comparacion"]:
-            with tabs[2]:
+            with tabs[IDX_COMP]:
                 st.markdown("#### Comparacion de los 3 metodos")
                 comp=res["comparacion"]
                 col_names={"Gradiente":"#a78bfa","Gradiente conjugado":"#60a5fa","Newton":"#34d399"}
@@ -860,7 +868,7 @@ Luego se verifica curvatura. Si alguna falla, α ← ρ·α y se repite.
                     fig2.tight_layout(); st.pyplot(fig2)
 
         # ── TAB: Trayectoria 2D ──
-        with tabs[2+tab_offset]:
+        with tabs[IDX_TRAY]:
             if res["n"]==2:
                 xs=np.array([h["x"] for h in res["history"]])
                 try:
@@ -962,7 +970,7 @@ Luego se verifica curvatura. Si alguna falla, α ← ρ·α y se repite.
                 st.info(f"La trayectoria 2D requiere exactamente 2 variables. Tu funcion tiene {res['n']}.")
 
         # ── TAB: Historial ──
-        with tabs[3+tab_offset]:
+        with tabs[IDX_HIST]:
             df=pd.DataFrame([{
                 "it.":h["iteración"],"f(x)":round(h["f(x)"],8),
                 "‖∇f‖":round(h["‖∇f‖"],8),
@@ -973,7 +981,7 @@ Luego se verifica curvatura. Si alguna falla, α ← ρ·α y se repite.
             st.download_button("Descargar CSV",csv,"historial_wolfex.csv","text/csv",use_container_width=True)
 
         # ── TAB: Explicación detallada ──
-        with tabs[4+tab_offset]:
+        with tabs[IDX_EXPL]:
             st.markdown("### Explicacion completa")
             st.markdown(generar_explicacion(res), unsafe_allow_html=True)
             st.markdown("---")
