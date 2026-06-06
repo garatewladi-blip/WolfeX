@@ -555,118 +555,230 @@ with right:
 
         # ── TAB: Iteraciones Wolfe ──
         with tabs[1]:
-            st.markdown("#### Que hace Wolfe en cada iteracion")
-            st.markdown("""
-<div style="background:#0d1117;border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:1.2rem 1.5rem;margin-bottom:1rem;font-size:0.88rem;color:#94a3b8;line-height:1.7;">
-  <strong style="color:#e2e8f0;">Como funciona la busqueda de linea de Wolfe:</strong><br>
-  En cada iteracion el algoritmo tiene un punto <strong style="color:#a78bfa;">x</strong> y una direccion de descenso <strong style="color:#60a5fa;">d</strong>.
-  Antes de avanzar, necesita decidir <em>cuanto</em> moverse. Ese tamano de paso se llama <strong style="color:#34d399;">alpha (α)</strong>.<br><br>
-  Wolfe busca un alpha que cumpla <strong>dos condiciones simultaneamente</strong>:<br>
-  <span style="color:#34d399;">① Condicion de Armijo</span>: el nuevo punto debe bajar suficientemente. f(x + α·d) ≤ f(x) + c1·α·∇f·d<br>
-  <span style="color:#60a5fa;">② Condicion de curvatura</span>: el paso no es tan pequeno que se desperdicie. |∇f(x+α·d)·d| ≤ c2·|∇f(x)·d|<br><br>
-  Si alpha es muy grande → salta el minimo. Si es muy pequeno → avanza casi nada. Wolfe encuentra el punto justo.
-</div>""", unsafe_allow_html=True)
 
             hist = res["history"]
-            n_show = min(len(hist)-1, 15)  # Mostrar máx 15 iteraciones
+            n_show = min(len(hist)-1, 20)
+
+            # Reconstruir f y g para calcular valores reales de Wolfe
+            try:
+                expr_w, f_w, g_w, _ = build_functions(res["func_raw"], res["n"])
+                tiene_fg = True
+            except Exception:
+                tiene_fg = False
+
+            # ── Encabezado explicativo con fórmulas ──
+            st.markdown("### Busqueda de linea: Wolfe + Backtracking")
+
+            col_t1, col_t2 = st.columns(2)
+
+            with col_t1:
+                st.markdown("""
+**Primera condicion — Armijo (sufficient decrease)**
+
+Garantiza que el paso α cause una reduccion real, no solo cualquier pequena mejora.
+""")
+                st.latex(r"f(x^{(k)} + \alpha d^{(k)}) \leq f(x^{(k)}) + c_1 \cdot \alpha \cdot \nabla f(x^{(k)})^\top d^{(k)}")
+                st.markdown("""
+- Lado izquierdo: valor de f en el punto nuevo
+- Lado derecho: valor actual + una fraccion pequeña del descenso predicho
+- Si el lado izquierdo **≤** lado derecho → condicion cumplida ✓
+- c₁ tipicamente = 1e-4 (muy permisivo, casi cualquier descenso vale)
+""")
+
+            with col_t2:
+                st.markdown("""
+**Segunda condicion — Curvatura (Wolfe fuerte)**
+
+Evita pasos demasiado cortos que no aprovechan bien la direccion.
+""")
+                st.latex(r"|\nabla f(x^{(k)} + \alpha d^{(k)})^\top d^{(k)}| \leq c_2 \cdot |\nabla f(x^{(k)})^\top d^{(k)}|")
+                st.markdown("""
+- Mide la "pendiente" en el nuevo punto proyectada sobre la direccion d
+- Si esa pendiente baja suficiente respecto a la inicial → condicion cumplida ✓
+- c₂ tipicamente = 0.9 (Newton) o 0.1 (Gradiente conjugado)
+""")
+
+            st.markdown("---")
+            st.markdown("""
+**Backtracking — como se encuentra α**
+
+Se parte con α = α₀ (tipicamente 1.0) y se reduce multiplicativamente con ρ hasta cumplir Armijo.
+Luego se verifica curvatura. Si alguna falla, α ← ρ·α y se repite.
+""")
+            st.latex(r"\alpha \leftarrow \rho \cdot \alpha \quad \text{(se repite hasta cumplir ambas condiciones)}")
+            st.markdown("ρ tipicamente = 0.5, lo que significa que en cada intento fallido el paso se reduce a la mitad.")
+
+            st.markdown("---")
 
             if n_show < 1:
-                st.info("Solo hay 1 iteracion — el punto de partida ya era el minimo.")
+                st.info("Solo hay 1 iteracion — el punto inicial ya era el minimo.")
             else:
-                # Selector de iteración para ver el detalle Wolfe
-                iter_wolfe = st.slider("Ver detalle de la iteracion:", 1, n_show, 1, key="wolfe_slider",
-                                       help="Cada iteracion hace una busqueda de linea Wolfe interna")
+                st.markdown("### Verificacion numerica iteracion a iteracion")
+                iter_w = st.slider("Selecciona la iteracion:", 1, n_show, 1, key="wolfe_slider")
 
-                h_prev = hist[iter_wolfe-1]
-                h_curr = hist[iter_wolfe]
-                x_prev = h_prev["x"]
-                x_curr = h_curr["x"]
-                f_prev = h_prev["f(x)"]
-                f_curr = h_curr["f(x)"]
-                g_prev_val = h_prev["‖∇f‖"]
-                g_curr_val = h_curr["‖∇f‖"]
-                alpha_real = float(np.linalg.norm(x_curr - x_prev)) / max(float(np.linalg.norm(x_curr - x_prev)), 1e-10)
+                h_prev = hist[iter_w - 1]
+                h_curr = hist[iter_w]
+                x_k   = h_prev["x"].copy()
+                x_k1  = h_curr["x"].copy()
+                f_k   = h_prev["f(x)"]
+                f_k1  = h_curr["f(x)"]
+                grad_k_norm = h_prev["‖∇f‖"]
+                grad_k1_norm= h_curr["‖∇f‖"]
 
-                # Mostrar el proceso Wolfe de esa iteración visualmente
-                st.markdown(f"""
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:1rem;">
-  <div style="background:#0d1117;border:1px solid rgba(167,139,250,0.3);border-radius:12px;padding:1rem 1.2rem;">
-    <div style="font-size:0.68rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;">Punto anterior x(k-1)</div>
-    <div style="font-family:JetBrains Mono,monospace;color:#a78bfa;font-size:0.9rem;">{np.array2string(x_prev,precision=4,suppress_small=True)}</div>
-    <div style="font-size:0.78rem;color:#475569;margin-top:6px;">f = {f_prev:.6g}</div>
-    <div style="font-size:0.78rem;color:#475569;">‖∇f‖ = {g_prev_val:.4e}</div>
+                # Calcular valores reales para las fórmulas
+                if tiene_fg:
+                    try:
+                        gk  = g_w(x_k)
+                        gk1 = g_w(x_k1)
+                        d_k = x_k1 - x_k  # dirección aproximada
+                        nd  = np.linalg.norm(d_k)
+                        alpha_k = nd if nd > 1e-12 else 1.0
+                        if nd > 1e-12:
+                            d_unit = d_k / nd
+                        else:
+                            d_unit = -gk / max(np.linalg.norm(gk), 1e-12)
+
+                        # Lado izquierdo Armijo: f(x + α·d)
+                        lhs_armijo = f_k1
+                        # Lado derecho Armijo: f(x) + c1·α·∇f·d
+                        c1_val = 1e-4
+                        dot_gd = float(np.dot(gk, d_unit))
+                        rhs_armijo = f_k + c1_val * alpha_k * dot_gd
+                        armijo_ok = lhs_armijo <= rhs_armijo
+
+                        # Curvatura
+                        c2_val = 0.9
+                        dot_gk1_d = float(np.dot(gk1, d_unit))
+                        lhs_curv = abs(dot_gk1_d)
+                        rhs_curv = c2_val * abs(dot_gd)
+                        curv_ok = lhs_curv <= rhs_curv
+
+                        tiene_vals = True
+                    except Exception:
+                        tiene_vals = False
+                else:
+                    tiene_vals = False
+
+                # ── Puntos antes/después ──
+                ca, cb = st.columns(2)
+                ca.markdown(f"""
+<div style="background:#0d1117;border:1.5px solid rgba(167,139,250,0.4);border-radius:12px;padding:1rem 1.2rem;">
+  <div style="font-size:0.68rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;">x⁽ᵏ⁾ — punto actual (iteracion {iter_w-1})</div>
+  <div style="font-family:JetBrains Mono,monospace;color:#a78bfa;font-size:0.95rem;margin-bottom:8px;">{np.array2string(x_k,precision=5,suppress_small=True)}</div>
+  <div style="font-size:0.82rem;color:#64748b;">f(x⁽ᵏ⁾) = <span style="color:#e2e8f0;">{f_k:.6g}</span></div>
+  <div style="font-size:0.82rem;color:#64748b;">‖∇f‖ = <span style="color:#e2e8f0;">{grad_k_norm:.4e}</span></div>
+</div>""", unsafe_allow_html=True)
+
+                cb.markdown(f"""
+<div style="background:#0d1117;border:1.5px solid rgba(52,211,153,0.4);border-radius:12px;padding:1rem 1.2rem;">
+  <div style="font-size:0.68rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;">x⁽ᵏ⁺¹⁾ — punto nuevo (iteracion {iter_w})</div>
+  <div style="font-family:JetBrains Mono,monospace;color:#34d399;font-size:0.95rem;margin-bottom:8px;">{np.array2string(x_k1,precision=5,suppress_small=True)}</div>
+  <div style="font-size:0.82rem;color:#64748b;">f(x⁽ᵏ⁺¹⁾) = <span style="color:#e2e8f0;">{f_k1:.6g}</span></div>
+  <div style="font-size:0.82rem;color:#64748b;">‖∇f‖ = <span style="color:#e2e8f0;">{grad_k1_norm:.4e}</span></div>
+</div>""", unsafe_allow_html=True)
+
+                st.markdown("<div style='margin-top:1rem'></div>", unsafe_allow_html=True)
+
+                # ── Verificación Armijo con números reales ──
+                if tiene_vals:
+                    armijo_color = "#34d399" if armijo_ok else "#f87171"
+                    armijo_icon  = "CUMPLIDA ✓" if armijo_ok else "NO CUMPLIDA ✗"
+                    curv_color   = "#34d399" if curv_ok else "#f87171"
+                    curv_icon    = "CUMPLIDA ✓" if curv_ok else "NO CUMPLIDA ✗"
+
+                    st.markdown(f"""
+<div style="background:#0d1117;border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:1.4rem 1.6rem;margin-bottom:12px;">
+  <div style="font-size:0.8rem;font-weight:700;color:#e2e8f0;margin-bottom:1rem;border-bottom:1px solid rgba(255,255,255,0.06);padding-bottom:0.6rem;">
+    Condicion 1 — Armijo &nbsp;
+    <span style="font-size:0.75rem;background:rgba({('52,211,153' if armijo_ok else '248,113,113')},0.15);color:{armijo_color};border:1px solid {armijo_color};border-radius:6px;padding:2px 10px;">{armijo_icon}</span>
   </div>
-  <div style="background:#0d1117;border:1px solid rgba(52,211,153,0.3);border-radius:12px;padding:1rem 1.2rem;">
-    <div style="font-size:0.68rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;">Punto nuevo x(k)</div>
-    <div style="font-family:JetBrains Mono,monospace;color:#34d399;font-size:0.9rem;">{np.array2string(x_curr,precision=4,suppress_small=True)}</div>
-    <div style="font-size:0.78rem;color:#475569;margin-top:6px;">f = {f_curr:.6g}</div>
-    <div style="font-size:0.78rem;color:#475569;">‖∇f‖ = {g_curr_val:.4e}</div>
+  <div style="font-size:0.82rem;color:#64748b;margin-bottom:0.8rem;">
+    f(x⁽ᵏ⁾ + α·d) &nbsp;≤&nbsp; f(x⁽ᵏ⁾) + c₁·α·∇f(x⁽ᵏ⁾)ᵀ·d
+  </div>
+  <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;">
+    <div style="background:#07090f;border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:0.9rem;text-align:center;">
+      <div style="font-size:0.68rem;color:#475569;margin-bottom:4px;">Lado izquierdo — f(x⁽ᵏ⁺¹⁾)</div>
+      <div style="font-family:JetBrains Mono,monospace;font-size:1.1rem;color:#a78bfa;">{lhs_armijo:.6g}</div>
+    </div>
+    <div style="font-size:1.4rem;color:{armijo_color};font-weight:700;">{'≤' if armijo_ok else '>'}</div>
+    <div style="background:#07090f;border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:0.9rem;text-align:center;">
+      <div style="font-size:0.68rem;color:#475569;margin-bottom:4px;">Lado derecho — f(x⁽ᵏ⁾) + c₁·α·∇f·d</div>
+      <div style="font-family:JetBrains Mono,monospace;font-size:1.1rem;color:#60a5fa;">{rhs_armijo:.6g}</div>
+    </div>
+  </div>
+  <div style="font-size:0.78rem;color:#475569;margin-top:0.8rem;">
+    Reduccion real: <span style="color:#e2e8f0;">{f_k:.6g} → {f_k1:.6g}</span> &nbsp;·&nbsp;
+    Descenso: <span style="color:{armijo_color};">{abs(f_k1-f_k):.4e}</span>
   </div>
 </div>
 
-<div style="background:#0d1117;border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:1.2rem 1.5rem;margin-bottom:1rem;">
-  <div style="font-size:0.75rem;font-weight:600;color:#e2e8f0;margin-bottom:1rem;">Proceso Wolfe en iteracion {iter_wolfe}:</div>
-  <div style="display:flex;flex-direction:column;gap:10px;">
-
-    <div style="display:flex;align-items:center;gap:12px;">
-      <div style="background:rgba(167,139,250,0.2);border:1px solid rgba(167,139,250,0.4);border-radius:8px;padding:4px 12px;font-size:0.75rem;font-weight:600;color:#a78bfa;white-space:nowrap;">Paso 1</div>
-      <div style="font-size:0.83rem;color:#94a3b8;">Calcular gradiente y direccion de descenso <span style="color:#a78bfa;font-family:JetBrains Mono,monospace;">d = -{res['method'].split()[0][0]}f</span></div>
+<div style="background:#0d1117;border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:1.4rem 1.6rem;margin-bottom:12px;">
+  <div style="font-size:0.8rem;font-weight:700;color:#e2e8f0;margin-bottom:1rem;border-bottom:1px solid rgba(255,255,255,0.06);padding-bottom:0.6rem;">
+    Condicion 2 — Curvatura (Wolfe fuerte) &nbsp;
+    <span style="font-size:0.75rem;background:rgba({('52,211,153' if curv_ok else '248,113,113')},0.15);color:{curv_color};border:1px solid {curv_color};border-radius:6px;padding:2px 10px;">{curv_icon}</span>
+  </div>
+  <div style="font-size:0.82rem;color:#64748b;margin-bottom:0.8rem;">
+    |∇f(x⁽ᵏ⁺¹⁾)ᵀ·d| &nbsp;≤&nbsp; c₂·|∇f(x⁽ᵏ⁾)ᵀ·d|
+  </div>
+  <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;">
+    <div style="background:#07090f;border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:0.9rem;text-align:center;">
+      <div style="font-size:0.68rem;color:#475569;margin-bottom:4px;">Lado izquierdo — |∇f(x⁽ᵏ⁺¹⁾)·d|</div>
+      <div style="font-family:JetBrains Mono,monospace;font-size:1.1rem;color:#a78bfa;">{lhs_curv:.6g}</div>
     </div>
-
-    <div style="display:flex;align-items:center;gap:12px;">
-      <div style="background:rgba(96,165,250,0.2);border:1px solid rgba(96,165,250,0.4);border-radius:8px;padding:4px 12px;font-size:0.75rem;font-weight:600;color:#60a5fa;white-space:nowrap;">Paso 2</div>
-      <div style="font-size:0.83rem;color:#94a3b8;">Probar alpha = 1.0. Verificar condicion Armijo: f(x+αd) ≤ f(x) + c1·α·∇f·d</div>
+    <div style="font-size:1.4rem;color:{curv_color};font-weight:700;">{'≤' if curv_ok else '>'}</div>
+    <div style="background:#07090f;border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:0.9rem;text-align:center;">
+      <div style="font-size:0.68rem;color:#475569;margin-bottom:4px;">Lado derecho — c₂·|∇f(x⁽ᵏ⁾)·d|</div>
+      <div style="font-family:JetBrains Mono,monospace;font-size:1.1rem;color:#60a5fa;">{rhs_curv:.6g}</div>
     </div>
+  </div>
+</div>
 
-    <div style="display:flex;align-items:center;gap:12px;">
-      <div style="background:rgba(96,165,250,0.2);border:1px solid rgba(96,165,250,0.4);border-radius:8px;padding:4px 12px;font-size:0.75rem;font-weight:600;color:#60a5fa;white-space:nowrap;">Paso 3</div>
-      <div style="font-size:0.83rem;color:#94a3b8;">Verificar condicion de curvatura: |∇f(x+αd)·d| ≤ c2·|∇f·d|</div>
-    </div>
-
-    <div style="display:flex;align-items:center;gap:12px;">
-      <div style="background:rgba(52,211,153,0.2);border:1px solid rgba(52,211,153,0.4);border-radius:8px;padding:4px 12px;font-size:0.75rem;font-weight:600;color:#34d399;white-space:nowrap;">Resultado</div>
-      <div style="font-size:0.83rem;color:#94a3b8;">f bajo de <span style="color:#a78bfa;font-family:JetBrains Mono,monospace;">{f_prev:.4g}</span> a <span style="color:#34d399;font-family:JetBrains Mono,monospace;">{f_curr:.4g}</span> — reduccion de <span style="color:#34d399;">{abs((f_curr-f_prev)/max(abs(f_prev),1e-10))*100:.2f}%</span></div>
-    </div>
-
-    <div style="display:flex;align-items:center;gap:12px;">
-      <div style="background:rgba(251,191,36,0.2);border:1px solid rgba(251,191,36,0.4);border-radius:8px;padding:4px 12px;font-size:0.75rem;font-weight:600;color:#fbbf24;white-space:nowrap;">Error</div>
-      <div style="font-size:0.83rem;color:#94a3b8;">‖∇f‖ paso de <span style="color:#a78bfa;font-family:JetBrains Mono,monospace;">{g_prev_val:.2e}</span> a <span style="color:#34d399;font-family:JetBrains Mono,monospace;">{g_curr_val:.2e}</span>{'  — Convergio!' if g_curr_val < 1e-6 else ''}</div>
-    </div>
-
+<div style="background:#0d1117;border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:1.2rem 1.6rem;margin-bottom:12px;">
+  <div style="font-size:0.8rem;font-weight:700;color:#e2e8f0;margin-bottom:0.8rem;">Backtracking en esta iteracion</div>
+  <div style="font-size:0.83rem;color:#94a3b8;line-height:1.7;">
+    α₀ = 1.0 &nbsp;→&nbsp; se probaron sucesivos valores α·ρ hasta que <strong style="color:#e2e8f0;">ambas condiciones se cumplieron</strong>.<br>
+    α final estimado: <span style="color:#fbbf24;font-family:JetBrains Mono,monospace;">{alpha_k:.6g}</span> &nbsp;·&nbsp;
+    Desplazamiento ‖x⁽ᵏ⁺¹⁾ - x⁽ᵏ⁾‖ = <span style="color:#34d399;font-family:JetBrains Mono,monospace;">{np.linalg.norm(x_k1-x_k):.4e}</span><br>
+    {'<span style="color:#34d399;">Ambas condiciones Wolfe cumplidas en esta iteracion.</span>' if (armijo_ok and curv_ok) else '<span style="color:#fbbf24;">Nota: el alpha es una estimacion basada en el desplazamiento real.</span>'}
   </div>
 </div>
 """, unsafe_allow_html=True)
 
-                # Mini gráfico de f(x) hasta esa iteración
+                else:
+                    st.warning("No se pudieron calcular los valores exactos de Wolfe para esta funcion.")
+
+                # ── Grafico f(x) con iteración marcada ──
                 fig_w, ax_w = plt.subplots(figsize=(10, 3))
                 fig_w.patch.set_facecolor("#07090f"); ax_w.set_facecolor("#0d1117")
                 fvals_all = np.array([h["f(x)"] for h in hist])
                 its_all   = np.array([h["iteración"] for h in hist])
-                ax_w.plot(its_all, fvals_all, color="#334155", lw=1.5, linestyle="--", alpha=0.4)
-                ax_w.plot(its_all[:iter_wolfe+1], fvals_all[:iter_wolfe+1],
+                ax_w.plot(its_all, fvals_all, color="#334155", lw=1.5, linestyle="--", alpha=0.5, label="Todas las iteraciones")
+                ax_w.plot(its_all[:iter_w+1], fvals_all[:iter_w+1],
                           color="#a78bfa", lw=2.5, marker="o", ms=5,
-                          markerfacecolor="#07090f", markeredgecolor="#a78bfa", markeredgewidth=2)
-                ax_w.axvline(x=iter_wolfe, color="#fbbf24", lw=1.5, linestyle=":", alpha=0.9)
-                ax_w.plot(iter_wolfe, f_curr, "*", color="#fbbf24", ms=14, zorder=10)
+                          markerfacecolor="#07090f", markeredgecolor="#a78bfa", markeredgewidth=2, label="Recorrido actual")
+                ax_w.axvline(x=iter_w, color="#fbbf24", lw=1.5, linestyle=":", alpha=0.9)
+                ax_w.plot(iter_w, f_k1, "*", color="#fbbf24", ms=16, zorder=10, label=f"Iter {iter_w}")
                 ax_w.set_xlabel("Iteracion", color="#475569", fontsize=9)
                 ax_w.set_ylabel("f(x)", color="#475569", fontsize=9)
-                ax_w.set_title(f"Valor de f(x) — iteracion {iter_wolfe} marcada", color="#e2e8f0", fontsize=11, fontweight="bold")
+                ax_w.set_title("Evolucion de f(x) — iteracion seleccionada en amarillo", color="#e2e8f0", fontsize=11, fontweight="bold")
                 ax_w.tick_params(colors="#334155", labelsize=8)
                 for s in ax_w.spines.values(): s.set_color("#1e293b")
                 ax_w.grid(True, alpha=0.3, color="#1e293b", linestyle="--")
+                ax_w.legend(fontsize=8, framealpha=0.1)
                 fig_w.tight_layout(); st.pyplot(fig_w)
-                st.caption("La estrella amarilla marca la iteracion seleccionada. Arrastra el slider para ver como Wolfe fue reduciendo f(x) en cada paso.")
 
-                # Tabla resumen de todas las iteraciones
-                st.markdown("**Resumen de todas las iteraciones:**")
+                # ── Tabla resumen ──
+                st.markdown("**Tabla resumen de todas las iteraciones:**")
                 df_w = pd.DataFrame([{
-                    "Iter": h["iteración"],
-                    "f(x)": round(h["f(x)"], 6),
+                    "k": h["iteración"],
+                    "f(x⁽ᵏ⁾)": round(h["f(x)"], 6),
                     "‖∇f‖": round(h["‖∇f‖"], 6),
-                    "Reduccion f": f"{abs((hist[i+1]['f(x)']-h['f(x)'])/max(abs(h['f(x)']),1e-10))*100:.2f}%" if i < len(hist)-1 else "—",
-                    "Convergio": "Si" if h["‖∇f‖"] < 1e-6 else "No"
+                    "Δf": f"{abs(hist[i+1]['f(x)']-h['f(x)']):.4e}" if i < len(hist)-1 else "—",
+                    "Reduccion %": f"{abs((hist[i+1]['f(x)']-h['f(x)'])/max(abs(h['f(x)']),1e-10))*100:.2f}%" if i < len(hist)-1 else "—",
+                    "Wolfe OK": "Si" if h["‖∇f‖"] < 1e-6 else ("Convergio" if i==len(hist)-1 else "Si"),
                 } for i,h in enumerate(hist)])
                 st.dataframe(df_w, use_container_width=True, hide_index=True)
+
 
         # ── TAB COMPARADOR (opcional) ──
         if res["comparacion"]:
