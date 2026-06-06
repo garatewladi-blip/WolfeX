@@ -3,6 +3,8 @@ import numpy as np
 import sympy as sp
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+import time
 
 st.set_page_config(
     page_title="WolfeX · Optimizador",
@@ -35,11 +37,8 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     color: #94a3b8; border-radius: 8px; padding: 6px 14px;
     font-size: 0.8rem; font-weight: 500; margin-left: 6px;
 }
-.nav-chip.active {
-    background: rgba(139,92,246,0.2); border-color: rgba(139,92,246,0.4); color: #a78bfa;
-}
+.nav-chip.active { background: rgba(139,92,246,0.2); border-color: rgba(139,92,246,0.4); color: #a78bfa; }
 
-/* Tutorial steps */
 .tut-step {
     background: #0d1117; border: 1px solid rgba(255,255,255,0.07);
     border-radius: 14px; padding: 1.2rem 1.4rem; margin-bottom: 10px;
@@ -60,11 +59,7 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     font-family: 'JetBrains Mono', monospace; font-size: 0.8rem;
 }
 
-/* Explicación resultado */
-.explain-box {
-    border-radius: 14px; padding: 1.3rem 1.5rem; margin: 8px 0;
-    border-left: 4px solid;
-}
+.explain-box { border-radius: 14px; padding: 1.3rem 1.5rem; margin: 8px 0; border-left: 4px solid; }
 .explain-box.ok   { background: rgba(52,211,153,0.07); border-color: #34d399; }
 .explain-box.warn { background: rgba(251,191,36,0.07);  border-color: #fbbf24; }
 .explain-box.info { background: rgba(96,165,250,0.07);  border-color: #60a5fa; }
@@ -75,7 +70,15 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 .explain-body { color: #94a3b8; font-size: 0.88rem; line-height: 1.7; }
 .explain-body strong { color: #cbd5e1; }
 
-/* Streamlit overrides */
+.hist-card {
+    background: #0d1117; border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 10px; padding: 0.8rem 1rem; margin-bottom: 6px;
+    cursor: pointer; transition: border-color 0.2s;
+}
+.hist-card:hover { border-color: rgba(139,92,246,0.4); }
+.hist-func { font-family: 'JetBrains Mono',monospace; color: #a78bfa; font-size: 0.82rem; }
+.hist-meta { color: #475569; font-size: 0.72rem; margin-top: 3px; }
+
 section[data-testid="stSidebar"] { display: none; }
 .stTextInput input, .stNumberInput input {
     background: rgba(255,255,255,0.04) !important;
@@ -87,7 +90,6 @@ section[data-testid="stSidebar"] { display: none; }
     color: #64748b !important; font-size: 0.72rem !important;
     text-transform: uppercase !important; letter-spacing: 0.08em !important;
 }
-div[data-testid="stDataFrame"] { border-radius: 12px; overflow: hidden; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -95,9 +97,7 @@ div[data-testid="stDataFrame"] { border-radius: 12px; overflow: hidden; }
 # ──────────────────────────────────────────────
 # MATEMÁTICA
 # ──────────────────────────────────────────────
-def fmt_expr(expr_str):
-    """Convierte ** a ^ para mostrar al usuario."""
-    return expr_str.replace("**", "^")
+def fmt_expr(s): return s.replace("**","^")
 
 def parse_vector(text, n):
     try:
@@ -108,7 +108,6 @@ def parse_vector(text, n):
         raise ValueError(f"Punto inválido: {e}")
 
 def build_functions(expr_text, n):
-    # Aceptar ^ como potencia
     expr_text = expr_text.replace("^","**")
     syms = sp.symbols(f"x1:{n+1}")
     ld = {f"x{i+1}": syms[i] for i in range(n)}
@@ -119,9 +118,9 @@ def build_functions(expr_text, n):
     try:
         expr = sp.sympify(expr_text, locals=ld)
     except Exception as e:
-        raise ValueError(f"No se pudo interpretar la función: {e}")
+        raise ValueError(f"No se pudo interpretar: {e}")
     unk = expr.free_symbols - set(syms)
-    if unk: raise ValueError(f"Variables no permitidas: {', '.join(str(s) for s in unk)}. Usa x1..x{n}.")
+    if unk: raise ValueError(f"Variables no permitidas: {', '.join(str(s) for s in unk)}.")
     ge = [sp.diff(expr,v) for v in syms]
     he = sp.hessian(expr, syms)
     fl = sp.lambdify((syms,), expr, "numpy")
@@ -189,86 +188,45 @@ def run_opt(method, f, g, h, x0, max_iter, tol, a0, c1, c2, rho):
     return x, ff, len(hist)-1, hist, reason
 
 def generar_explicacion(res):
-    """Genera explicación didáctica del resultado en lenguaje simple."""
-    fmin   = res["fmin"]
-    iters  = res["iters"]
-    reason = res["reason"]
-    method = res["method"]
-    fe     = res["history"][-1]["‖∇f‖"]
-    xmin   = res["xmin"]
-    xstr   = np.array2string(xmin, precision=4, suppress_small=True)
-    convergio = "Convergencia" in reason
-
-    # ¿Es mínimo?
+    fmin=res["fmin"]; iters=res["iters"]; reason=res["reason"]
+    method=res["method"]; fe=res["history"][-1]["‖∇f‖"]
+    xmin=res["xmin"]; xstr=np.array2string(xmin,precision=4,suppress_small=True)
+    convergio="Convergencia" in reason
     if convergio:
-        exp_minimo = f"""
-<div class="explain-box ok">
-  <div class="explain-title">✅ Se encontró un mínimo local</div>
-  <div class="explain-body">
-    El algoritmo llegó al punto <strong>{xstr}</strong> donde el valor de la función es <strong>{fmin:.6g}</strong>.
-    Sabemos que es un <strong>mínimo</strong> porque el gradiente (la "pendiente" de la función en ese punto)
-    es prácticamente cero — su norma es <strong>{fe:.2e}</strong>, menor que la tolerancia pedida.
-    En términos simples: la función "deja de bajar" ahí, lo que matemáticamente define un punto mínimo.
-  </div>
-</div>"""
+        exp1=f"""<div class="explain-box ok"><div class="explain-title">✅ Se encontró un mínimo local</div>
+<div class="explain-body">El algoritmo llegó al punto <strong>{xstr}</strong> donde f(x) = <strong>{fmin:.6g}</strong>.
+Es un <strong>mínimo</strong> porque el gradiente (la pendiente de la función) es prácticamente cero —
+su norma es <strong>{fe:.2e}</strong>, menor que la tolerancia. La función "deja de bajar" ahí.</div></div>"""
     else:
-        exp_minimo = f"""
-<div class="explain-box warn">
-  <div class="explain-title">⚠️ No se confirmó convergencia al mínimo</div>
-  <div class="explain-body">
-    El método se detuvo pero <strong>no porque encontró el mínimo</strong>, sino porque se alcanzó
-    el límite de iteraciones o hubo un problema numérico. El error final es <strong>{fe:.2e}</strong>,
-    que aún puede ser grande. El punto encontrado <strong>{xstr}</strong> es el mejor que se alcanzó,
-    pero puede no ser el mínimo real. Prueba aumentar las iteraciones máximas o cambiar el punto de partida.
-  </div>
-</div>"""
-
-    # Iteraciones
-    method_speeds = {
-        "Newton": ("muy rápido — generalmente converge en pocas iteraciones porque usa información de la curvatura (Hessiano) de la función.",
-                   "Si necesitó muchas iteraciones, la función probablemente es muy no-lineal o el punto de partida estaba lejos del mínimo."),
-        "Gradiente conjugado": ("moderadamente rápido — mejora el gradiente puro usando direcciones conjugadas que no interfieren entre sí.",
-                                "Más iteraciones que Newton es normal; es más eficiente que el gradiente simple."),
-        "Gradiente": ("el más lento de los tres — avanza siempre en la dirección de mayor descenso pero sin considerar la curvatura.",
-                      "Muchas iteraciones son normales, especialmente en funciones con 'valles estrechos' como Rosenbrock."),
-    }
-    spd, spd2 = method_speeds.get(method, ("",""))
-
-    exp_iters = f"""
-<div class="explain-box info">
-  <div class="explain-title">🔁 ¿Por qué {iters} iteraciones?</div>
-  <div class="explain-body">
-    El método <strong>{method}</strong> es {spd}<br><br>
-    {spd2}<br><br>
-    Cada iteración calcula una nueva dirección de descenso y luego usa la <strong>búsqueda de línea de Wolfe</strong>
-    para encontrar el tamaño de paso óptimo (ni muy grande que salte el mínimo, ni muy pequeño que avance lentísimo).
-    El proceso se repite hasta que el gradiente sea suficientemente pequeño o se agoten las iteraciones.
-  </div>
-</div>"""
-
-    # ¿Mínimo global o local?
-    exp_tipo = f"""
-<div class="explain-box info">
-  <div class="explain-title">📌 ¿Mínimo local o global?</div>
-  <div class="explain-body">
-    Estos métodos garantizan encontrar un <strong>mínimo local</strong> — el punto más bajo en la
-    "vecindad" del punto de partida. Para funciones convexas (como x1²+x2²), el mínimo local
-    <em>es</em> el global. Para funciones no convexas (como Rosenbrock), puede haber múltiples mínimos
-    locales y el resultado depende del punto de partida. Si sospechas que no encontraste el mínimo global,
-    prueba con diferentes puntos de partida.
-  </div>
-</div>"""
-
-    return exp_minimo + exp_iters + exp_tipo
+        exp1=f"""<div class="explain-box warn"><div class="explain-title">⚠️ No se confirmó convergencia</div>
+<div class="explain-body">El método se detuvo pero <strong>no porque encontró el mínimo</strong>. Error final: <strong>{fe:.2e}</strong>.
+Prueba aumentar las iteraciones máximas o cambiar el punto de partida.</div></div>"""
+    speeds={"Newton":("muy rápido — usa la curvatura (Hessiano) para predecir el mínimo.",
+                      "Pocas iteraciones son esperables. Si necesitó muchas, la función es muy no-lineal."),
+            "Gradiente conjugado":("moderadamente rápido — combina dirección actual con la anterior.",
+                                   "Más iteraciones que Newton es normal; mucho menos que gradiente puro."),
+            "Gradiente":("el más lento — avanza en la dirección de mayor descenso sin considerar curvatura.",
+                         "Muchas iteraciones son normales, especialmente en 'valles estrechos'.")}
+    spd,spd2=speeds.get(method,("",""))
+    exp2=f"""<div class="explain-box info"><div class="explain-title">🔁 ¿Por qué {iters} iteraciones?</div>
+<div class="explain-body">El método <strong>{method}</strong> es {spd}<br><br>{spd2}<br><br>
+Cada iteración calcula dirección de descenso + búsqueda de línea Wolfe (paso óptimo).
+Se repite hasta que el gradiente sea menor que la tolerancia.</div></div>"""
+    exp3="""<div class="explain-box info"><div class="explain-title">📌 ¿Mínimo local o global?</div>
+<div class="explain-body">Estos métodos garantizan un <strong>mínimo local</strong>.
+Para funciones convexas (x1²+x2²) el local <em>es</em> el global.
+Para no convexas (Rosenbrock), el resultado depende del punto de partida.
+Prueba distintos puntos iniciales si sospechas que hay un mínimo mejor.</div></div>"""
+    return exp1+exp2+exp3
 
 
 # ──────────────────────────────────────────────
 # ESTADO
 # ──────────────────────────────────────────────
-for k, v in [("method","Newton"),("func","x1^2 + x2^2"),
-             ("x0","3, 4"),("resultado",None),("tutorial",False)]:
-    if k not in st.session_state:
-        st.session_state[k] = v
+for k,v in [("method","Newton"),("func","x1^2 + x2^2"),
+            ("x0","3, 4"),("resultado",None),("info_metodo",None),
+            ("historial_runs",[]),("ver_comparador",False)]:
+    if k not in st.session_state: st.session_state[k]=v
 
 
 # ──────────────────────────────────────────────
@@ -282,276 +240,230 @@ st.markdown("""
     <span class="nav-chip">Wolfe Fuerte</span>
     <span class="nav-chip">Semestre 2026</span>
   </div>
-</div>
-""", unsafe_allow_html=True)
+</div>""", unsafe_allow_html=True)
 
 
 # ──────────────────────────────────────────────
-# TUTORIAL INTERACTIVO (expander destacado)
+# TUTORIAL
 # ──────────────────────────────────────────────
-with st.expander("🎓 Tutorial interactivo — ¿Cómo usar WolfeX? (haz clic aquí si es tu primera vez)", expanded=False):
+with st.expander("🎓 Tutorial interactivo — ¿Primera vez? Haz clic aquí", expanded=False):
     st.markdown("""
 <div style="padding:0.5rem 0 1rem;">
-  <div style="font-size:1.1rem;font-weight:700;color:#e2e8f0;margin-bottom:1rem;">
-    Bienvenido/a 👋 Aprende a usar WolfeX en 5 pasos simples
-  </div>
-
-  <div class="tut-step">
-    <div class="tut-num">1</div>
-    <div>
-      <div class="tut-title">Escribe tu función matemática</div>
-      <div class="tut-desc">
-        En el campo <em>"Función f(x)"</em>, escribe la función que quieres minimizar.<br>
-        Usa <span class="tut-code">x1</span>, <span class="tut-code">x2</span>, etc. para las variables
-        y <span class="tut-code">^</span> para elevar a una potencia.<br>
-        Ejemplo: <span class="tut-code">x1^2 + x2^2</span> significa x₁² + x₂²<br>
-        También puedes usar los botones de ejemplos rápidos: <strong>Esférica</strong>, <strong>Desplazada</strong> o <strong>Rosenbrock</strong>.
-      </div>
-    </div>
-  </div>
-
-  <div class="tut-step">
-    <div class="tut-num">2</div>
-    <div>
-      <div class="tut-title">Elige el número de variables</div>
-      <div class="tut-desc">
-        Si tu función tiene x1 y x2, pon <span class="tut-code">2</span>. Si tiene x1, x2 y x3, pon <span class="tut-code">3</span>, y así sucesivamente.
-        La mayoría de los ejemplos usan 2 variables.
-      </div>
-    </div>
-  </div>
-
-  <div class="tut-step">
-    <div class="tut-num">3</div>
-    <div>
-      <div class="tut-title">Ingresa el punto de partida</div>
-      <div class="tut-desc">
-        El algoritmo necesita un punto inicial desde donde empezar a buscar el mínimo.
-        Escríbelo como números separados por coma. Ejemplo: <span class="tut-code">3, 4</span> significa x1=3, x2=4.<br>
-        Si tu función tiene 3 variables, escribe 3 números: <span class="tut-code">1, 2, 3</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="tut-step">
-    <div class="tut-num">4</div>
-    <div>
-      <div class="tut-title">Selecciona el método</div>
-      <div class="tut-desc">
-        Hay 3 métodos disponibles. Si no sabes cuál elegir, usa <strong>Newton</strong> — es el más rápido y preciso para la mayoría de funciones.<br>
-        • <strong>Gradiente</strong>: el más simple, funciona siempre pero puede ser lento.<br>
-        • <strong>Gradiente Conjugado</strong>: intermedio, más rápido que el gradiente puro.<br>
-        • <strong>Newton</strong>: el más rápido, usa la curvatura de la función para dar mejores saltos.
-      </div>
-    </div>
-  </div>
-
-  <div class="tut-step">
-    <div class="tut-num">5</div>
-    <div>
-      <div class="tut-title">Presiona ⚡ Ejecutar y lee los resultados</div>
-      <div class="tut-desc">
-        Haz clic en el botón <strong>Ejecutar optimización</strong> y la app te mostrará:<br>
-        • El punto donde está el mínimo (las coordenadas x1, x2, ...)<br>
-        • El valor más bajo que alcanzó la función<br>
-        • Cuántas iteraciones (pasos) necesitó<br>
-        • Una explicación en lenguaje simple de qué significa cada resultado<br>
-        • Un gráfico mostrando cómo fue bajando el error paso a paso
-      </div>
-    </div>
-  </div>
-
-  <div style="background:rgba(52,211,153,0.07);border:1px solid rgba(52,211,153,0.2);border-radius:10px;padding:1rem 1.2rem;margin-top:0.5rem;">
-    <div style="color:#34d399;font-weight:600;margin-bottom:4px;">💡 Consejo rápido</div>
-    <div style="color:#64748b;font-size:0.85rem;">
-      Si nunca has usado esta app, prueba primero haciendo clic en <strong>"Esférica"</strong>
-      en los ejemplos rápidos y luego en <strong>Ejecutar</strong>. Verás un resultado simple con explicación detallada.
-    </div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
+<div style="font-size:1.1rem;font-weight:700;color:#e2e8f0;margin-bottom:1rem;">Bienvenido/a 👋 Aprende a usar WolfeX en 5 pasos</div>
+<div class="tut-step"><div class="tut-num">1</div><div>
+  <div class="tut-title">Escribe tu función usando ^ para potencias</div>
+  <div class="tut-desc">Usa <span class="tut-code">x1</span>, <span class="tut-code">x2</span>, etc. y <span class="tut-code">^</span> para elevar.
+  Ejemplo: <span class="tut-code">x1^2 + x2^2</span> significa x₁² + x₂².
+  También puedes usar sin, cos, exp, log, sqrt. O prueba los botones de ejemplos rápidos.</div>
+</div></div>
+<div class="tut-step"><div class="tut-num">2</div><div>
+  <div class="tut-title">Elige el número de variables</div>
+  <div class="tut-desc">Si tu función tiene x1 y x2 → pon 2. Si tiene x1, x2, x3 → pon 3. Los ejemplos usan 2 variables.</div>
+</div></div>
+<div class="tut-step"><div class="tut-num">3</div><div>
+  <div class="tut-title">Ingresa el punto de partida</div>
+  <div class="tut-desc">Números separados por coma. Ejemplo: <span class="tut-code">3, 4</span> significa x1=3, x2=4.
+  El algoritmo empieza desde ahí y baja hasta el mínimo.</div>
+</div></div>
+<div class="tut-step"><div class="tut-num">4</div><div>
+  <div class="tut-title">Selecciona el método (recomendado: Newton)</div>
+  <div class="tut-desc">• <strong>Gradiente</strong>: simple pero lento. 🐢<br>
+  • <strong>Gradiente Conjugado</strong>: intermedio. 🚶<br>
+  • <strong>Newton</strong>: el más rápido y preciso. 🚀 Toca las cards para saber más.</div>
+</div></div>
+<div class="tut-step"><div class="tut-num">5</div><div>
+  <div class="tut-title">Presiona ⚡ Ejecutar y lee los resultados</div>
+  <div class="tut-desc">Verás: punto mínimo, valor f(x*), iteraciones, gráfico de convergencia,
+  trayectoria visual y una explicación en lenguaje simple de cada resultado.</div>
+</div></div>
+<div style="background:rgba(52,211,153,0.07);border:1px solid rgba(52,211,153,0.2);border-radius:10px;padding:1rem 1.2rem;margin-top:0.5rem;">
+  <div style="color:#34d399;font-weight:600;margin-bottom:4px;">💡 Consejo</div>
+  <div style="color:#64748b;font-size:0.85rem;">Prueba primero "🔵 Esférica" + Newton. Luego compara los 3 métodos con el botón <strong>Comparar métodos</strong>.</div>
+</div></div>""", unsafe_allow_html=True)
 
 
 # ──────────────────────────────────────────────
-# LAYOUT PRINCIPAL
+# LAYOUT
 # ──────────────────────────────────────────────
 left, right = st.columns([1.1, 2.4])
 
 with left:
-    st.markdown("""
-    <div style="font-size:0.68rem;font-weight:600;color:#475569;
-         text-transform:uppercase;letter-spacing:0.12em;margin-bottom:0.8rem;">
-      ⚙️ Configuración
-    </div>""", unsafe_allow_html=True)
+    st.markdown('<div style="font-size:0.68rem;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:0.12em;margin-bottom:0.8rem;">⚙️ Configuración</div>', unsafe_allow_html=True)
 
-    # Función — con notación ^
-    func_raw = st.text_input(
-        "Función f(x)  — usa ^ para potencias",
-        value=st.session_state.func,
-        help="Ejemplo: x1^2 + x2^2 · También puedes usar sin, cos, exp, log, sqrt"
-    )
+    func_raw = st.text_input("Función f(x) — usa ^ para potencias", value=st.session_state.func)
     st.session_state.func = func_raw
-    # Preview con notación ^
     preview = func_raw.replace("**","^")
     st.markdown(f"<div style='font-family:JetBrains Mono,monospace;font-size:0.8rem;color:#a78bfa;margin:-8px 0 8px;'>f(x) = {preview}</div>", unsafe_allow_html=True)
 
-    # Botones ejemplos rápidos
-    st.markdown("<div style='font-size:0.7rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;'>⚡ Ejemplos rápidos</div>", unsafe_allow_html=True)
-    ec1, ec2, ec3 = st.columns(3)
-    if ec1.button("🔵 Esférica", use_container_width=True, help="x1² + x2² · mínimo en (0,0)"):
-        st.session_state.func = "x1^2 + x2^2"
-        st.session_state.x0 = "3, 4"
-        st.rerun()
-    if ec2.button("🟣 Desplazada", use_container_width=True, help="(x1-1)² + (x2+2)² · mínimo en (1,-2)"):
-        st.session_state.func = "(x1-1)^2 + (x2+2)^2"
-        st.session_state.x0 = "0, 0"
-        st.rerun()
+    st.markdown('<div style="font-size:0.7rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">⚡ Ejemplos rápidos</div>', unsafe_allow_html=True)
+    ec1,ec2,ec3=st.columns(3)
+    if ec1.button("🔵 Esférica", use_container_width=True, help="x1²+x2² · mínimo en (0,0)"):
+        st.session_state.func="x1^2 + x2^2"; st.session_state.x0="3, 4"; st.rerun()
+    if ec2.button("🟣 Desplazada", use_container_width=True, help="(x1-1)²+(x2+2)² · mínimo en (1,-2)"):
+        st.session_state.func="(x1-1)^2 + (x2+2)^2"; st.session_state.x0="0, 0"; st.rerun()
     if ec3.button("🟠 Rosenbrock", use_container_width=True, help="Función clásica difícil · mínimo en (1,1)"):
-        st.session_state.func = "100*(x2-x1^2)^2 + (1-x1)^2"
-        st.session_state.x0 = "-1.2, 1"
-        st.rerun()
+        st.session_state.func="100*(x2-x1^2)^2 + (1-x1)^2"; st.session_state.x0="-1.2, 1"; st.rerun()
 
     st.markdown("---")
-
-    # Método con botones destacados
-    st.markdown("<div style='font-size:0.7rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;'>🧮 Método de optimización</div>", unsafe_allow_html=True)
-
-    m1, m2, m3 = st.columns(3)
-    metodos = [("Gradiente","▽","#a78bfa","m1",m1),
-               ("Gradiente conjugado","⇉","#60a5fa","m2",m2),
-               ("Newton","⊕","#34d399","m3",m3)]
-    for lbl, icon, clr, key, col in metodos:
-        sel = st.session_state.method == lbl
-        with col:
-            if st.button(
-                f"{icon} {'✓ ' if sel else ''}{lbl.split()[0]}",
-                key=key,
-                use_container_width=True,
-                type="primary" if sel else "secondary",
-                help=f"Seleccionar método {lbl}"
-            ):
-                st.session_state.method = lbl
-                st.rerun()
-
-    met_desc = {
-        "Gradiente": "▽ Gradiente — sigue la pendiente más pronunciada. Simple y seguro.",
-        "Gradiente conjugado": "⇉ Conjugado — combina dirección actual con la anterior. Más rápido.",
-        "Newton": "⊕ Newton — usa la curvatura de la función. El más veloz y preciso.",
-    }
+    st.markdown('<div style="font-size:0.7rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;">🧮 Método</div>', unsafe_allow_html=True)
+    m1,m2,m3=st.columns(3)
+    for lbl,icon,key,col in [("Gradiente","▽","m1",m1),("Gradiente conjugado","⇉","m2",m2),("Newton","⊕","m3",m3)]:
+        sel=st.session_state.method==lbl
+        if col.button(f"{icon} {'✓' if sel else lbl.split()[0]}", key=key, use_container_width=True, type="primary" if sel else "secondary"):
+            st.session_state.method=lbl; st.rerun()
+    met_desc={"Gradiente":"▽ Gradiente — sigue la pendiente. Simple y seguro. 🐢",
+              "Gradiente conjugado":"⇉ Conjugado — combina direcciones. Más rápido. 🚶",
+              "Newton":"⊕ Newton — usa curvatura. El más veloz. 🚀"}
     st.markdown(f"<div style='background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:8px 12px;font-size:0.8rem;color:#64748b;margin-top:6px;'>{met_desc[st.session_state.method]}</div>", unsafe_allow_html=True)
 
     st.markdown("---")
-
-    n      = st.number_input("Número de variables (x1, x2, ...)", 1, 20, 2, 1)
+    n      = st.number_input("Número de variables", 1, 20, 2, 1)
     x0_txt = st.text_input("Punto de partida (ej: 3, 4)", value=st.session_state.x0)
-    st.session_state.x0 = x0_txt
+    st.session_state.x0=x0_txt
     max_it = st.number_input("Máx. iteraciones", 1, 100000, 100, 10)
-    tol    = st.number_input("Tolerancia ε", 1e-15, 1.0, 1e-6, format="%.1e",
-                              help="Qué tan pequeño debe ser el gradiente para declarar convergencia")
+    tol    = st.number_input("Tolerancia ε", 1e-15, 1.0, 1e-6, format="%.1e")
 
     with st.expander("🔧 Parámetros avanzados de Wolfe"):
-        st.caption("Modifica solo si sabes lo que haces. Los valores por defecto funcionan bien.")
-        alpha0 = st.number_input("α inicial", 1e-12, 100.0, 1.0, format="%.4f")
-        c1     = st.number_input("c₁ Armijo",  1e-12, 0.5,  1e-4, format="%.1e")
-        c2     = st.number_input("c₂ curvatura", 0.01, 0.99, 0.9, format="%.2f")
-        rho    = st.number_input("ρ reducción α", 0.01, 0.99, 0.5, format="%.2f")
-    alpha0 = locals().get("alpha0", 1.0)
-    c1     = locals().get("c1", 1e-4)
-    c2     = locals().get("c2", 0.9)
-    rho    = locals().get("rho", 0.5)
+        st.caption("Los valores por defecto funcionan bien para la mayoría de casos.")
+        alpha0=st.number_input("α inicial",1e-12,100.0,1.0,format="%.4f")
+        c1    =st.number_input("c₁ Armijo",1e-12,0.5,1e-4,format="%.1e")
+        c2    =st.number_input("c₂ curvatura",0.01,0.99,0.9,format="%.2f")
+        rho   =st.number_input("ρ reducción α",0.01,0.99,0.5,format="%.2f")
+    if "alpha0" not in dir(): alpha0=1.0
+    if "c1" not in dir(): c1=1e-4
+    if "c2" not in dir(): c2=0.9
+    if "rho" not in dir(): rho=0.5
 
     st.markdown("---")
-    run = st.button("⚡  Ejecutar optimización", type="primary", use_container_width=True)
+    run=st.button("⚡  Ejecutar optimización", type="primary", use_container_width=True)
+    cmp=st.button("🔬  Comparar los 3 métodos", use_container_width=True,
+                  help="Ejecuta Gradiente, Conjugado y Newton a la vez y compara resultados")
 
-    if run:
+    if run or cmp:
         try:
-            if not (0 < c1 < c2 < 1):
-                st.error("Se requiere 0 < c₁ < c₂ < 1")
+            if not (0<c1<c2<1): st.error("Se requiere 0 < c₁ < c₂ < 1")
             else:
-                with st.spinner("⚡ Calculando..."):
-                    expr, f, g, h = build_functions(st.session_state.func, int(n))
-                    x0v = parse_vector(st.session_state.x0, int(n))
-                    xmin, fmin, iters, history, reason = run_opt(
-                        st.session_state.method, f, g, h, x0v,
-                        int(max_it), tol, alpha0, c1, c2, rho)
-                st.session_state.resultado = {
-                    "xmin": xmin, "fmin": fmin, "iters": iters,
-                    "history": history, "reason": reason,
-                    "expr": fmt_expr(sp.sstr(expr)),
-                    "method": st.session_state.method
+                # Animación de carga por pasos
+                prog = st.progress(0, text="🔍 Interpretando función...")
+                time.sleep(0.3)
+                expr,f,g,h=build_functions(st.session_state.func, int(n))
+                prog.progress(25, text="📐 Calculando derivadas simbólicas...")
+                time.sleep(0.3)
+                x0v=parse_vector(st.session_state.x0, int(n))
+                prog.progress(50, text=f"⚡ Ejecutando {st.session_state.method}...")
+                time.sleep(0.2)
+                xmin,fmin,iters,history,reason=run_opt(
+                    st.session_state.method,f,g,h,x0v,int(max_it),tol,alpha0,c1,c2,rho)
+                prog.progress(85, text="📊 Preparando resultados...")
+                time.sleep(0.2)
+
+                # Si es comparador, correr los otros dos también
+                comparacion=None
+                if cmp:
+                    prog.progress(90, text="🔬 Comparando todos los métodos...")
+                    comparacion={}
+                    for met in ["Gradiente","Gradiente conjugado","Newton"]:
+                        xm,fm,it,hi,re=run_opt(met,f,g,h,x0v,int(max_it),tol,alpha0,c1,c2,rho)
+                        comparacion[met]={"xmin":xm,"fmin":fm,"iters":it,"history":hi,"reason":re}
+
+                prog.progress(100, text="✅ ¡Listo!")
+                time.sleep(0.3)
+                prog.empty()
+
+                resultado={
+                    "xmin":xmin,"fmin":fmin,"iters":iters,
+                    "history":history,"reason":reason,
+                    "expr":fmt_expr(sp.sstr(expr)),
+                    "method":st.session_state.method,
+                    "comparacion":comparacion,
+                    "func_raw":st.session_state.func,
+                    "x0_raw":st.session_state.x0,
+                    "n":int(n),
                 }
+                st.session_state.resultado=resultado
+
+                # Guardar en historial (máx 5)
+                entry={"func":st.session_state.func,"x0":st.session_state.x0,
+                       "method":st.session_state.method,"fmin":fmin,"iters":iters}
+                hist_runs=st.session_state.historial_runs
+                hist_runs=[e for e in hist_runs if e["func"]!=entry["func"] or e["method"]!=entry["method"]]
+                hist_runs.insert(0,entry)
+                st.session_state.historial_runs=hist_runs[:5]
+
         except Exception as ex:
+            if "prog" in dir(): prog.empty()
             st.error(f"❌ {ex}")
-            st.session_state.resultado = None
+            st.session_state.resultado=None
+
+    # Historial de ejecuciones
+    if st.session_state.historial_runs:
+        st.markdown("---")
+        st.markdown('<div style="font-size:0.7rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">🕐 Historial reciente</div>', unsafe_allow_html=True)
+        for i,e in enumerate(st.session_state.historial_runs):
+            col_h, col_b = st.columns([3,1])
+            col_h.markdown(f"""
+            <div class="hist-card">
+              <div class="hist-func">{e['func']}</div>
+              <div class="hist-meta">{e['method']} · f*={e['fmin']:.4g} · {e['iters']} iters</div>
+            </div>""", unsafe_allow_html=True)
+            if col_b.button("↩", key=f"reload_{i}", help="Cargar esta función"):
+                st.session_state.func=e["func"]
+                st.session_state.x0=e["x0"]
+                st.session_state.method=e["method"]
+                st.rerun()
 
 
 # ──────────────────────────────────────────────
 # PANEL DERECHO
 # ──────────────────────────────────────────────
 with right:
-    res = st.session_state.resultado
+    res=st.session_state.resultado
 
     if res is None:
+        # Pantalla de bienvenida con cards tocables
         st.markdown("""
-        <div style="padding:2.5rem 2rem 1rem;text-align:center;">
+        <div style="padding:2rem 2rem 1rem;text-align:center;">
           <div style="font-size:3.2rem;font-weight:800;letter-spacing:-2px;
                background:linear-gradient(135deg,#fff 0%,#a78bfa 50%,#60a5fa 100%);
-               -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-               margin-bottom:0.8rem;">
+               -webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:0.8rem;">
             Optimización<br>Numérica
           </div>
-          <div style="color:#334155;font-size:0.93rem;max-width:420px;margin:0 auto 1.5rem;line-height:1.8;">
-            Encuentra el punto mínimo de cualquier función matemática usando tres algoritmos clásicos,
-            todos con búsqueda de línea que cumple las condiciones de Wolfe.
+          <div style="color:#334155;font-size:0.93rem;max-width:420px;margin:0 auto 1.2rem;line-height:1.8;">
+            Encuentra el punto mínimo de cualquier función usando tres algoritmos con búsqueda de línea de Wolfe.
           </div>
-          <div style="color:#475569;font-size:0.82rem;margin-bottom:1rem;">
-            👇 Toca un método para conocerlo
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
+          <div style="color:#475569;font-size:0.82rem;margin-bottom:1rem;">👇 Toca un método para conocerlo</div>
+        </div>""", unsafe_allow_html=True)
 
-        if "info_metodo" not in st.session_state:
-            st.session_state.info_metodo = None
-
-        # Botones interactivos de métodos
-        b1, b2, b3 = st.columns(3)
-
-        info_metodos = {
-            "Gradiente": {
-                "icon": "▽", "color": "#c4b5fd", "bcolor": "rgba(167,139,250,0.15)",
-                "border": "rgba(167,139,250,0.4)", "sub": "Descenso clásico",
-                "titulo": "▽ Método del Gradiente",
-                "que_es": "Es el método más simple de optimización. Funciona como bajar una montaña siguiendo siempre la pendiente más pronunciada hacia abajo.",
-                "como": "En cada paso calcula el gradiente (la dirección de mayor subida) y se mueve en dirección contraria (la de mayor bajada). Luego usa las condiciones de Wolfe para decidir cuánto avanzar.",
-                "cuando": "Úsalo cuando quieras algo seguro y confiable. Es más lento que los otros dos, especialmente en funciones con 'valles estrechos', pero nunca falla.",
-                "velocidad": "🐢 Lento — puede necesitar muchas iteraciones",
-                "ejemplo": "Ideal para: x1² + x2², funciones suaves y convexas.",
-            },
-            "Gradiente conjugado": {
-                "icon": "⇉", "color": "#60a5fa", "bcolor": "rgba(96,165,250,0.15)",
-                "border": "rgba(96,165,250,0.4)", "sub": "Polak-Ribière",
-                "titulo": "⇉ Método del Gradiente Conjugado",
-                "que_es": "Una versión mejorada del gradiente. En vez de ir siempre en línea recta hacia abajo, combina la dirección actual con la dirección anterior para avanzar de forma más inteligente.",
-                "como": "Calcula un factor β (beta) que mezcla la dirección actual con la del paso anterior, generando 'direcciones conjugadas' que no se repiten ni se anulan entre sí. Usa Polak-Ribière para calcular β.",
-                "cuando": "Úsalo cuando el gradiente simple sea muy lento. Es mucho más rápido en funciones cuadráticas y funciona bien en problemas grandes.",
-                "velocidad": "🚶 Moderado — significativamente más rápido que el gradiente puro",
-                "ejemplo": "Ideal para: funciones cuadráticas, problemas de tamaño mediano.",
-            },
-            "Newton": {
-                "icon": "⊕", "color": "#34d399", "bcolor": "rgba(52,211,153,0.15)",
-                "border": "rgba(52,211,153,0.4)", "sub": "Hessiano regularizado",
-                "titulo": "⊕ Método de Newton",
-                "que_es": "El más sofisticado de los tres. Además de saber la pendiente (gradiente), también usa la curvatura de la función (Hessiano) para predecir dónde está el mínimo con mucha más precisión.",
-                "como": "Resuelve el sistema H·d = -g en cada paso, donde H es la matriz Hessiana (curvatura) y g es el gradiente. Si el Hessiano no es positivo definido, la app lo regulariza automáticamente para evitar errores.",
-                "cuando": "Úsalo casi siempre — es el más rápido. Solo puede ser más lento si la función es muy no-lineal o el Hessiano es difícil de calcular.",
-                "velocidad": "🚀 Muy rápido — converge en pocas iteraciones",
-                "ejemplo": "Ideal para: cualquier función diferenciable, especialmente Rosenbrock.",
-            },
+        info_metodos={
+            "Gradiente":{"icon":"▽","color":"#c4b5fd","bcolor":"rgba(167,139,250,0.15)",
+                "border":"rgba(167,139,250,0.4)","sub":"Descenso clásico",
+                "titulo":"▽ Método del Gradiente",
+                "que_es":"El más simple. Como bajar una montaña siguiendo siempre la pendiente más pronunciada hacia abajo.",
+                "como":"Calcula el gradiente (dirección de mayor subida) y se mueve en dirección contraria. Wolfe decide cuánto avanzar.",
+                "cuando":"Úsalo cuando quieras algo seguro y confiable. Más lento pero nunca falla.",
+                "velocidad":"🐢 Lento — puede necesitar muchas iteraciones",
+                "ejemplo":"Ideal para: x1²+x2², funciones suaves y convexas."},
+            "Gradiente conjugado":{"icon":"⇉","color":"#60a5fa","bcolor":"rgba(96,165,250,0.15)",
+                "border":"rgba(96,165,250,0.4)","sub":"Polak-Ribière",
+                "titulo":"⇉ Método del Gradiente Conjugado",
+                "que_es":"Versión mejorada del gradiente. Combina la dirección actual con la anterior para avanzar más inteligente.",
+                "como":"Calcula β (Polak-Ribière) que mezcla dirección actual con la del paso anterior, generando 'direcciones conjugadas'.",
+                "cuando":"Úsalo cuando el gradiente simple sea muy lento. Mucho más rápido en funciones cuadráticas.",
+                "velocidad":"🚶 Moderado — significativamente más rápido que gradiente puro",
+                "ejemplo":"Ideal para: funciones cuadráticas, problemas de tamaño mediano."},
+            "Newton":{"icon":"⊕","color":"#34d399","bcolor":"rgba(52,211,153,0.15)",
+                "border":"rgba(52,211,153,0.4)","sub":"Hessiano regularizado",
+                "titulo":"⊕ Método de Newton",
+                "que_es":"El más sofisticado. Además de la pendiente, usa la curvatura de la función para predecir dónde está el mínimo.",
+                "como":"Resuelve H·d = -g donde H es la matriz Hessiana (curvatura). Si H no es positivo definido, se regulariza automáticamente.",
+                "cuando":"Úsalo casi siempre — es el más rápido y preciso. Especialmente bueno en Rosenbrock.",
+                "velocidad":"🚀 Muy rápido — converge en pocas iteraciones",
+                "ejemplo":"Ideal para: cualquier función diferenciable."},
         }
 
-        for lbl, col in [("Gradiente",b1),("Gradiente conjugado",b2),("Newton",b3)]:
-            m = info_metodos[lbl]
-            activo = st.session_state.info_metodo == lbl
+        b1,b2,b3=st.columns(3)
+        for lbl,col in [("Gradiente",b1),("Gradiente conjugado",b2),("Newton",b3)]:
+            m=info_metodos[lbl]; activo=st.session_state.info_metodo==lbl
             with col:
                 st.markdown(f"""
                 <div style="background:{''+m['bcolor'] if activo else '#0d1117'};
@@ -560,142 +472,218 @@ with right:
                   <div style="font-size:2.2rem;margin-bottom:8px;">{m['icon']}</div>
                   <div style="font-weight:700;color:{m['color']};font-size:0.9rem;">{lbl.split()[0]}</div>
                   <div style="font-size:0.7rem;color:#334155;margin-top:3px;">{m['sub']}</div>
-                  <div style="font-size:0.7rem;color:{m['color']};margin-top:8px;opacity:0.8;">
-                    {'▲ cerrar' if activo else '▼ ver más'}
-                  </div>
-                </div>
-                """, unsafe_allow_html=True)
-                if col.button(
-                    f"{'✓ ' if activo else ''}{lbl.split()[0]}",
-                    key=f"info_{lbl}",
-                    use_container_width=True,
-                    type="primary" if activo else "secondary"
-                ):
-                    st.session_state.info_metodo = None if activo else lbl
-                    st.rerun()
+                  <div style="font-size:0.7rem;color:{m['color']};margin-top:8px;opacity:0.8;">{'▲ cerrar' if activo else '▼ ver más'}</div>
+                </div>""", unsafe_allow_html=True)
+                if col.button(f"{'✓ ' if activo else ''}{lbl.split()[0]}", key=f"info_{lbl}", use_container_width=True, type="primary" if activo else "secondary"):
+                    st.session_state.info_metodo=None if activo else lbl; st.rerun()
 
-        # Panel de información del método seleccionado
         if st.session_state.info_metodo:
-            m = info_metodos[st.session_state.info_metodo]
+            m=info_metodos[st.session_state.info_metodo]
             st.markdown(f"""
-            <div style="background:{m['bcolor']};border:1.5px solid {m['border']};
-                 border-radius:16px;padding:1.8rem 2rem;margin-top:0.5rem;">
-              <div style="font-size:1.2rem;font-weight:700;color:{m['color']};margin-bottom:1.2rem;">
-                {m['titulo']}
-              </div>
+            <div style="background:{m['bcolor']};border:1.5px solid {m['border']};border-radius:16px;padding:1.8rem 2rem;margin-top:0.5rem;">
+              <div style="font-size:1.2rem;font-weight:700;color:{m['color']};margin-bottom:1.2rem;">{m['titulo']}</div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
-                <div>
-                  <div style="font-size:0.7rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">¿Qué es?</div>
-                  <div style="font-size:0.88rem;color:#cbd5e1;line-height:1.6;">{m['que_es']}</div>
-                </div>
-                <div>
-                  <div style="font-size:0.7rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">¿Cómo funciona?</div>
-                  <div style="font-size:0.88rem;color:#cbd5e1;line-height:1.6;">{m['como']}</div>
-                </div>
-                <div>
-                  <div style="font-size:0.7rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">¿Cuándo usarlo?</div>
-                  <div style="font-size:0.88rem;color:#cbd5e1;line-height:1.6;">{m['cuando']}</div>
-                </div>
-                <div>
-                  <div style="font-size:0.7rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">Velocidad</div>
-                  <div style="font-size:0.88rem;color:{m['color']};font-weight:600;">{m['velocidad']}</div>
-                  <div style="font-size:0.8rem;color:#475569;margin-top:8px;">{m['ejemplo']}</div>
-                </div>
+                <div><div style="font-size:0.7rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">¿Qué es?</div>
+                <div style="font-size:0.88rem;color:#cbd5e1;line-height:1.6;">{m['que_es']}</div></div>
+                <div><div style="font-size:0.7rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">¿Cómo funciona?</div>
+                <div style="font-size:0.88rem;color:#cbd5e1;line-height:1.6;">{m['como']}</div></div>
+                <div><div style="font-size:0.7rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">¿Cuándo usarlo?</div>
+                <div style="font-size:0.88rem;color:#cbd5e1;line-height:1.6;">{m['cuando']}</div></div>
+                <div><div style="font-size:0.7rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">Velocidad</div>
+                <div style="font-size:0.88rem;color:{m['color']};font-weight:600;">{m['velocidad']}</div>
+                <div style="font-size:0.8rem;color:#475569;margin-top:8px;">{m['ejemplo']}</div></div>
               </div>
-              <div style="margin-top:1.2rem;padding-top:1rem;border-top:1px solid rgba(255,255,255,0.06);
-                   font-size:0.82rem;color:#475569;text-align:center;">
-                💡 Selecciona este método en el panel izquierdo y presiona ⚡ Ejecutar para probarlo
+              <div style="margin-top:1.2rem;padding-top:1rem;border-top:1px solid rgba(255,255,255,0.06);font-size:0.82rem;color:#475569;text-align:center;">
+                💡 Selecciona este método en el panel izquierdo y presiona ⚡ Ejecutar
               </div>
-            </div>
-            """, unsafe_allow_html=True)
+            </div>""", unsafe_allow_html=True)
 
-        st.markdown("""
-        <div style="text-align:center;color:#1e293b;font-size:0.82rem;margin-top:1.5rem;">
-          ← Configura los parámetros y presiona <strong style="color:#a78bfa">⚡ Ejecutar</strong>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown('<div style="text-align:center;color:#1e293b;font-size:0.82rem;margin-top:1.5rem;">← Configura los parámetros y presiona <strong style="color:#a78bfa">⚡ Ejecutar</strong></div>', unsafe_allow_html=True)
 
     else:
-        convergio = "Convergencia" in res["reason"]
-        bstyle = "background:rgba(52,211,153,.1);color:#34d399;border:1px solid rgba(52,211,153,.25);" if convergio \
-                 else "background:rgba(251,191,36,.1);color:#fbbf24;border:1px solid rgba(251,191,36,.25);"
-        bicon = "✅" if convergio else "⚠️"
+        convergio="Convergencia" in res["reason"]
+        bstyle="background:rgba(52,211,153,.1);color:#34d399;border:1px solid rgba(52,211,153,.25);" if convergio \
+               else "background:rgba(251,191,36,.1);color:#fbbf24;border:1px solid rgba(251,191,36,.25);"
+        bicon="✅" if convergio else "⚠️"
+        st.markdown(f'<div style="border-radius:10px;padding:10px 16px;font-size:0.88rem;font-weight:600;margin-bottom:1rem;{bstyle}">{bicon} &nbsp;{res["reason"]}</div>', unsafe_allow_html=True)
 
-        st.markdown(f"""
-        <div style="border-radius:10px;padding:10px 16px;font-size:0.88rem;
-             font-weight:600;margin-bottom:1rem;{bstyle}">
-          {bicon} &nbsp;{res['reason']}
-        </div>""", unsafe_allow_html=True)
-
-        # KPIs
-        xstr = np.array2string(res["xmin"], precision=5, suppress_small=True)
-        c1k, c2k, c3k = st.columns(3)
+        xstr=np.array2string(res["xmin"],precision=5,suppress_small=True)
+        c1k,c2k,c3k=st.columns(3)
         c1k.metric("📍 Punto mínimo x*", xstr)
         c2k.metric("🎯 Valor f(x*)", f"{res['fmin']:.6g}")
         c3k.metric("🔁 Iteraciones", res["iters"])
-
-        fe = res["history"][-1]["‖∇f‖"]
-        ia, ib = st.columns(2)
+        fe=res["history"][-1]["‖∇f‖"]
+        ia,ib=st.columns(2)
         ia.info(f"**Error final ‖∇f‖:** `{fe:.4e}`")
         ib.info(f"**Función:** `{res['expr']}`")
 
-        # ── EXPLICACIÓN AUTOMÁTICA ──
-        st.markdown("""
-        <div style="font-size:0.72rem;font-weight:600;color:#475569;
-             text-transform:uppercase;letter-spacing:0.12em;margin:1.4rem 0 0.6rem;">
-          🧠 Explicación del resultado
-        </div>""", unsafe_allow_html=True)
+        # Explicación automática
+        st.markdown('<div style="font-size:0.72rem;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:0.12em;margin:1.4rem 0 0.6rem;">🧠 Explicación del resultado</div>', unsafe_allow_html=True)
         st.markdown(generar_explicacion(res), unsafe_allow_html=True)
 
-        # ── TABS: Gráfico + Tabla ──
-        st.markdown("<div style='margin-top:1.2rem'></div>", unsafe_allow_html=True)
-        tab1, tab2 = st.tabs(["📈 Gráfico de convergencia", "📊 Historial de iteraciones"])
+        # Tabs
+        n_tabs = 5 if res["comparacion"] else 4
+        tab_labels = ["📈 Convergencia", "🗺️ Trayectoria 2D", "📊 Historial", "🧠 Explicación detallada"]
+        if res["comparacion"]: tab_labels.insert(1, "🔬 Comparador")
+        tabs = st.tabs(tab_labels)
 
-        with tab1:
-            errs = np.array([h["‖∇f‖"] for h in res["history"]])
-            its  = np.array([h["iteración"] for h in res["history"]])
-            pos  = errs[errs>0]
-            use_log = len(pos)>=2 and errs.max()/pos.min()>100
-            colors = {"Gradiente":"#a78bfa","Gradiente conjugado":"#60a5fa","Newton":"#34d399"}
-            col = colors.get(res["method"], "#a78bfa")
-
-            fig, ax = plt.subplots(figsize=(10,4))
-            fig.patch.set_facecolor("#07090f")
-            ax.set_facecolor("#0d1117")
-            y = np.maximum(errs, 1e-16)
+        # ── TAB 1: Convergencia ──
+        with tabs[0]:
+            errs=np.array([h["‖∇f‖"] for h in res["history"]])
+            its=np.array([h["iteración"] for h in res["history"]])
+            pos=errs[errs>0]; use_log=len(pos)>=2 and errs.max()/pos.min()>100
+            colors={"Gradiente":"#a78bfa","Gradiente conjugado":"#60a5fa","Newton":"#34d399"}
+            col=colors.get(res["method"],"#a78bfa")
+            fig,ax=plt.subplots(figsize=(10,4))
+            fig.patch.set_facecolor("#07090f"); ax.set_facecolor("#0d1117")
+            y=np.maximum(errs,1e-16)
             if use_log:
-                ax.semilogy(its, y, color=col, lw=2.5, marker="o", ms=5,
-                            markerfacecolor="#07090f", markeredgecolor=col, markeredgewidth=2,
-                            label=res["method"])
-                ax.fill_between(its, 1e-16, y, alpha=0.07, color=col)
-                ax.set_ylabel("‖∇f‖  (log)", color="#475569", fontsize=10)
+                ax.semilogy(its,y,color=col,lw=2.5,marker="o",ms=5,markerfacecolor="#07090f",markeredgecolor=col,markeredgewidth=2,label=res["method"])
+                ax.fill_between(its,1e-16,y,alpha=0.07,color=col)
+                ax.set_ylabel("‖∇f‖ (log)",color="#475569",fontsize=10)
             else:
-                ax.plot(its, errs, color=col, lw=2.5, marker="o", ms=5,
-                        markerfacecolor="#07090f", markeredgecolor=col, markeredgewidth=2,
-                        label=res["method"])
-                ax.fill_between(its, 0, errs, alpha=0.07, color=col)
-                ax.set_ylabel("‖∇f‖", color="#475569", fontsize=10)
-            ax.set_xlabel("Iteración", color="#475569", fontsize=10)
-            ax.set_title(f"Convergencia — {res['method']}", color="#e2e8f0", fontsize=12, fontweight="bold")
-            ax.tick_params(colors="#334155", labelsize=8)
+                ax.plot(its,errs,color=col,lw=2.5,marker="o",ms=5,markerfacecolor="#07090f",markeredgecolor=col,markeredgewidth=2,label=res["method"])
+                ax.fill_between(its,0,errs,alpha=0.07,color=col)
+                ax.set_ylabel("‖∇f‖",color="#475569",fontsize=10)
+            ax.set_xlabel("Iteración",color="#475569",fontsize=10)
+            ax.set_title(f"Convergencia — {res['method']}",color="#e2e8f0",fontsize=12,fontweight="bold")
+            ax.tick_params(colors="#334155",labelsize=8)
             for s in ax.spines.values(): s.set_color("#1e293b")
-            ax.grid(True, alpha=0.3, color="#1e293b", linestyle="--")
-            ax.legend(fontsize=9, framealpha=0.1, labelcolor=col)
-            fig.tight_layout()
-            st.pyplot(fig)
-            st.caption("El gráfico muestra cómo el error (norma del gradiente) disminuye con cada iteración. Cuando llega a 0 (o muy cerca), el algoritmo encontró el mínimo.")
+            ax.grid(True,alpha=0.3,color="#1e293b",linestyle="--")
+            ax.legend(fontsize=9,framealpha=0.1,labelcolor=col)
+            fig.tight_layout(); st.pyplot(fig)
+            st.caption("Cada punto es una iteración. Cuando la curva llega abajo → el algoritmo encontró el mínimo.")
 
-        with tab2:
-            df = pd.DataFrame([{
-                "it.": h["iteración"],
-                "f(x)": round(h["f(x)"],8),
-                "‖∇f‖": round(h["‖∇f‖"],8),
-                "x": np.array2string(h["x"],precision=4,suppress_small=True)
+        # ── TAB COMPARADOR (opcional) ──
+        tab_offset = 0
+        if res["comparacion"]:
+            tab_offset = 1
+            with tabs[1]:
+                st.markdown("#### 🔬 Comparación de los 3 métodos")
+                comp=res["comparacion"]
+                col_names={"Gradiente":"#a78bfa","Gradiente conjugado":"#60a5fa","Newton":"#34d399"}
+
+                # Tabla comparativa
+                rows=[]
+                for met,r in comp.items():
+                    fe2=r["history"][-1]["‖∇f‖"]
+                    rows.append({"Método":met,"Iteraciones":r["iters"],
+                                 "f(x*)":f"{r['fmin']:.6g}","Error final":f"{fe2:.2e}",
+                                 "Convergió":"✅" if "Convergencia" in r["reason"] else "⚠️"})
+                st.dataframe(pd.DataFrame(rows),use_container_width=True,hide_index=True)
+
+                # Gráfico superpuesto
+                fig2,ax2=plt.subplots(figsize=(10,4.5))
+                fig2.patch.set_facecolor("#07090f"); ax2.set_facecolor("#0d1117")
+                all_errs=[]
+                for met,r in comp.items():
+                    e=np.array([h["‖∇f‖"] for h in r["history"]])
+                    it=np.array([h["iteración"] for h in r["history"]])
+                    all_errs.extend(e[e>0].tolist())
+                    c=col_names[met]
+                    ax2.semilogy(it,np.maximum(e,1e-16),color=c,lw=2.2,marker="o",ms=4,
+                                 markerfacecolor="#07090f",markeredgecolor=c,markeredgewidth=1.5,label=met)
+                ax2.set_xlabel("Iteración",color="#475569",fontsize=10)
+                ax2.set_ylabel("‖∇f‖ (log)",color="#475569",fontsize=10)
+                ax2.set_title("Convergencia comparada — 3 métodos",color="#e2e8f0",fontsize=12,fontweight="bold")
+                ax2.tick_params(colors="#334155",labelsize=8)
+                for s in ax2.spines.values(): s.set_color("#1e293b")
+                ax2.grid(True,alpha=0.3,color="#1e293b",linestyle="--")
+                ax2.legend(fontsize=9,framealpha=0.1)
+                fig2.tight_layout(); st.pyplot(fig2)
+                st.caption("El método que baja más rápido es el más eficiente para esta función y punto de partida.")
+
+        # ── TAB: Trayectoria 2D ──
+        with tabs[1+tab_offset]:
+            if res["n"]==2:
+                xs=np.array([h["x"] for h in res["history"]])
+                try:
+                    expr2,f2,_,_=build_functions(res["func_raw"],2)
+                    xmin_v,xmax_v=xs[:,0].min(),xs[:,0].max()
+                    ymin_v,ymax_v=xs[:,1].min(),xs[:,1].max()
+                    mx=max(1.0,0.6*(xmax_v-xmin_v)); my=max(1.0,0.6*(ymax_v-ymin_v))
+                    gx=np.linspace(xmin_v-mx,xmax_v+mx,220)
+                    gy=np.linspace(ymin_v-my,ymax_v+my,220)
+                    GX,GY=np.meshgrid(gx,gy)
+                    Z=np.zeros_like(GX)
+                    for ii in range(GX.shape[0]):
+                        for jj in range(GX.shape[1]):
+                            try: Z[ii,jj]=f2(np.array([GX[ii,jj],GY[ii,jj]]))
+                            except: Z[ii,jj]=np.nan
+                    Z=np.where(np.isfinite(Z),Z,np.nan)
+
+                    fig3,ax3=plt.subplots(figsize=(8,7))
+                    fig3.patch.set_facecolor("#07090f"); ax3.set_facecolor("#0d1117")
+                    levels=np.percentile(Z[np.isfinite(Z)],np.linspace(2,98,35))
+                    levels=np.unique(levels)
+                    if len(levels)>1:
+                        cs=ax3.contourf(GX,GY,Z,levels=levels,cmap="plasma",alpha=0.4)
+                        ax3.contour(GX,GY,Z,levels=levels,colors="white",alpha=0.12,linewidths=0.5)
+                        cb=fig3.colorbar(cs,ax=ax3,pad=0.02)
+                        cb.ax.tick_params(colors="#64748b",labelsize=7); cb.set_label("f(x)",color="#64748b",fontsize=8)
+
+                    col_traj=colors.get(res["method"],"#a78bfa")
+                    ax3.plot(xs[:,0],xs[:,1],"o-",color=col_traj,lw=1.8,ms=4,
+                             markerfacecolor="#07090f",markeredgecolor=col_traj,markeredgewidth=1.5,
+                             label="Trayectoria",zorder=5)
+                    ax3.plot(xs[0,0],xs[0,1],"s",color="white",ms=10,label="Inicio",zorder=6)
+                    ax3.plot(xs[-1,0],xs[-1,1],"*",color="#fbbf24",ms=18,label="Mínimo",zorder=7)
+                    for ii,(px,py) in enumerate(zip(xs[:,0],xs[:,1])):
+                        if ii%max(1,len(xs)//8)==0:
+                            ax3.annotate(str(ii),xy=(px,py),fontsize=6,color="#94a3b8",
+                                         xytext=(4,4),textcoords="offset points")
+                    ax3.set_xlabel("x1",color="#475569",fontsize=10)
+                    ax3.set_ylabel("x2",color="#475569",fontsize=10)
+                    ax3.set_title(f"Trayectoria — {res['method']}",color="#e2e8f0",fontsize=12,fontweight="bold")
+                    ax3.tick_params(colors="#334155",labelsize=8)
+                    for s in ax3.spines.values(): s.set_color("#1e293b")
+                    ax3.legend(fontsize=9,framealpha=0.15,loc="upper right")
+                    fig3.tight_layout(); st.pyplot(fig3)
+                    st.caption("⬛ = inicio | ⭐ = mínimo encontrado. Los números muestran el orden de las iteraciones. Las curvas de nivel muestran el 'relieve' de la función.")
+                except Exception as ex:
+                    st.warning(f"No se pudo graficar la trayectoria: {ex}")
+            else:
+                st.info(f"La trayectoria 2D solo está disponible para funciones de 2 variables. Tu función tiene {res['n']} variables.")
+
+        # ── TAB: Historial ──
+        with tabs[2+tab_offset]:
+            df=pd.DataFrame([{
+                "it.":h["iteración"],"f(x)":round(h["f(x)"],8),
+                "‖∇f‖":round(h["‖∇f‖"],8),
+                "x":np.array2string(h["x"],precision=4,suppress_small=True)
             } for h in res["history"]])
-            st.dataframe(df, use_container_width=True, hide_index=True)
-            csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                "⬇️ Descargar historial CSV",
-                csv, "historial_wolfex.csv", "text/csv",
-                use_container_width=True
-            )
+            st.dataframe(df,use_container_width=True,hide_index=True)
+            csv=df.to_csv(index=False).encode("utf-8")
+            st.download_button("⬇️ Descargar CSV",csv,"historial_wolfex.csv","text/csv",use_container_width=True)
+
+        # ── TAB: Explicación detallada ──
+        with tabs[3+tab_offset]:
+            st.markdown("### 🧠 Explicación completa del resultado")
+            st.markdown(generar_explicacion(res), unsafe_allow_html=True)
+
+            # Glosario rápido
+            st.markdown("---")
+            st.markdown("#### 📖 Glosario rápido")
+            g1,g2=st.columns(2)
+            with g1:
+                st.markdown("""
+**Gradiente ‖∇f‖**
+La "pendiente" de la función en un punto. Si es 0, estamos en un mínimo (o máximo).
+
+**Hessiano**
+Matriz de segundas derivadas. Describe la curvatura de la función. Newton lo usa para predecir el mínimo.
+
+**Condición de Wolfe**
+Regla matemática que garantiza que el tamaño del paso sea ni muy grande ni muy pequeño en cada iteración.
+""")
+            with g2:
+                st.markdown("""
+**Convergencia**
+El algoritmo convergió = el gradiente bajó por debajo de la tolerancia ε. Encontró el mínimo.
+
+**Tolerancia ε**
+Qué tan pequeño debe ser el gradiente para declarar convergencia. Valor por defecto: 1e-6.
+
+**Mínimo local vs global**
+Local = el más bajo en la vecindad. Global = el más bajo de toda la función. Para funciones convexas coinciden.
+""")
