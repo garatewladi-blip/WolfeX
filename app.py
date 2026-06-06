@@ -894,8 +894,12 @@ Luego se verifica curvatura. Si alguna falla, α ← ρ·α y se repite.
                     n_iters=len(xs)
                     if n_iters > 1:
                         st.markdown("**Ver iteracion a iteracion — mueve el slider:**")
-                        iter_sel=st.slider("Iteracion", 1, n_iters-1, n_iters-1, key="iter_slider",
-                                           help="Mueve para ver cómo avanza el algoritmo paso a paso")
+                        max_iter_sel = max(1, n_iters - 1)
+                        if max_iter_sel == 1:
+                            iter_sel = 1
+                        else:
+                            iter_sel=st.slider("Iteracion", 1, max_iter_sel, max_iter_sel, key="iter_slider",
+                                               help="Mueve para ver como avanza el algoritmo paso a paso")
                         xs_vis=xs[:iter_sel+1]
                         h_sel=res["history"][iter_sel]
                         st.markdown(f"""
