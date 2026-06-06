@@ -520,15 +520,11 @@ with right:
         ia.info(f"**Error final ‖∇f‖:** `{fe:.4e}`")
         ib.info(f"**Función:** `{res['expr']}`")
 
-        # Explicación automática
-        st.markdown('<div style="font-size:0.72rem;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:0.12em;margin:1.4rem 0 0.6rem;">🧠 Explicación del resultado</div>', unsafe_allow_html=True)
-        st.markdown(generar_explicacion(res), unsafe_allow_html=True)
-
-        # Tabs
-        n_tabs = 5 if res["comparacion"] else 4
-        tab_labels = ["📈 Convergencia", "🗺️ Trayectoria 2D", "📊 Historial", "🧠 Explicación detallada"]
+        # Tabs — sin explicación duplicada arriba
+        tab_labels = ["📈 Convergencia", "🔍 Iteraciones Wolfe", "🗺️ Trayectoria 2D", "📊 Historial", "🧠 Explicación"]
         if res["comparacion"]: tab_labels.insert(1, "🔬 Comparador")
         tabs = st.tabs(tab_labels)
+        tab_offset = 1 if res["comparacion"] else 0
 
         # ── TAB 1: Convergencia ──
         with tabs[0]:
@@ -557,11 +553,124 @@ with right:
             fig.tight_layout(); st.pyplot(fig)
             st.caption("Cada punto es una iteración. Cuando la curva llega abajo → el algoritmo encontró el mínimo.")
 
+        # ── TAB: Iteraciones Wolfe ──
+        with tabs[1]:
+            st.markdown("#### Que hace Wolfe en cada iteracion")
+            st.markdown("""
+<div style="background:#0d1117;border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:1.2rem 1.5rem;margin-bottom:1rem;font-size:0.88rem;color:#94a3b8;line-height:1.7;">
+  <strong style="color:#e2e8f0;">Como funciona la busqueda de linea de Wolfe:</strong><br>
+  En cada iteracion el algoritmo tiene un punto <strong style="color:#a78bfa;">x</strong> y una direccion de descenso <strong style="color:#60a5fa;">d</strong>.
+  Antes de avanzar, necesita decidir <em>cuanto</em> moverse. Ese tamano de paso se llama <strong style="color:#34d399;">alpha (α)</strong>.<br><br>
+  Wolfe busca un alpha que cumpla <strong>dos condiciones simultaneamente</strong>:<br>
+  <span style="color:#34d399;">① Condicion de Armijo</span>: el nuevo punto debe bajar suficientemente. f(x + α·d) ≤ f(x) + c1·α·∇f·d<br>
+  <span style="color:#60a5fa;">② Condicion de curvatura</span>: el paso no es tan pequeno que se desperdicie. |∇f(x+α·d)·d| ≤ c2·|∇f(x)·d|<br><br>
+  Si alpha es muy grande → salta el minimo. Si es muy pequeno → avanza casi nada. Wolfe encuentra el punto justo.
+</div>""", unsafe_allow_html=True)
+
+            hist = res["history"]
+            n_show = min(len(hist)-1, 15)  # Mostrar máx 15 iteraciones
+
+            if n_show < 1:
+                st.info("Solo hay 1 iteracion — el punto de partida ya era el minimo.")
+            else:
+                # Selector de iteración para ver el detalle Wolfe
+                iter_wolfe = st.slider("Ver detalle de la iteracion:", 1, n_show, 1, key="wolfe_slider",
+                                       help="Cada iteracion hace una busqueda de linea Wolfe interna")
+
+                h_prev = hist[iter_wolfe-1]
+                h_curr = hist[iter_wolfe]
+                x_prev = h_prev["x"]
+                x_curr = h_curr["x"]
+                f_prev = h_prev["f(x)"]
+                f_curr = h_curr["f(x)"]
+                g_prev_val = h_prev["‖∇f‖"]
+                g_curr_val = h_curr["‖∇f‖"]
+                alpha_real = float(np.linalg.norm(x_curr - x_prev)) / max(float(np.linalg.norm(x_curr - x_prev)), 1e-10)
+
+                # Mostrar el proceso Wolfe de esa iteración visualmente
+                st.markdown(f"""
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:1rem;">
+  <div style="background:#0d1117;border:1px solid rgba(167,139,250,0.3);border-radius:12px;padding:1rem 1.2rem;">
+    <div style="font-size:0.68rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;">Punto anterior x(k-1)</div>
+    <div style="font-family:JetBrains Mono,monospace;color:#a78bfa;font-size:0.9rem;">{np.array2string(x_prev,precision=4,suppress_small=True)}</div>
+    <div style="font-size:0.78rem;color:#475569;margin-top:6px;">f = {f_prev:.6g}</div>
+    <div style="font-size:0.78rem;color:#475569;">‖∇f‖ = {g_prev_val:.4e}</div>
+  </div>
+  <div style="background:#0d1117;border:1px solid rgba(52,211,153,0.3);border-radius:12px;padding:1rem 1.2rem;">
+    <div style="font-size:0.68rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;">Punto nuevo x(k)</div>
+    <div style="font-family:JetBrains Mono,monospace;color:#34d399;font-size:0.9rem;">{np.array2string(x_curr,precision=4,suppress_small=True)}</div>
+    <div style="font-size:0.78rem;color:#475569;margin-top:6px;">f = {f_curr:.6g}</div>
+    <div style="font-size:0.78rem;color:#475569;">‖∇f‖ = {g_curr_val:.4e}</div>
+  </div>
+</div>
+
+<div style="background:#0d1117;border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:1.2rem 1.5rem;margin-bottom:1rem;">
+  <div style="font-size:0.75rem;font-weight:600;color:#e2e8f0;margin-bottom:1rem;">Proceso Wolfe en iteracion {iter_wolfe}:</div>
+  <div style="display:flex;flex-direction:column;gap:10px;">
+
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div style="background:rgba(167,139,250,0.2);border:1px solid rgba(167,139,250,0.4);border-radius:8px;padding:4px 12px;font-size:0.75rem;font-weight:600;color:#a78bfa;white-space:nowrap;">Paso 1</div>
+      <div style="font-size:0.83rem;color:#94a3b8;">Calcular gradiente y direccion de descenso <span style="color:#a78bfa;font-family:JetBrains Mono,monospace;">d = -{res['method'].split()[0][0]}f</span></div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div style="background:rgba(96,165,250,0.2);border:1px solid rgba(96,165,250,0.4);border-radius:8px;padding:4px 12px;font-size:0.75rem;font-weight:600;color:#60a5fa;white-space:nowrap;">Paso 2</div>
+      <div style="font-size:0.83rem;color:#94a3b8;">Probar alpha = 1.0. Verificar condicion Armijo: f(x+αd) ≤ f(x) + c1·α·∇f·d</div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div style="background:rgba(96,165,250,0.2);border:1px solid rgba(96,165,250,0.4);border-radius:8px;padding:4px 12px;font-size:0.75rem;font-weight:600;color:#60a5fa;white-space:nowrap;">Paso 3</div>
+      <div style="font-size:0.83rem;color:#94a3b8;">Verificar condicion de curvatura: |∇f(x+αd)·d| ≤ c2·|∇f·d|</div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div style="background:rgba(52,211,153,0.2);border:1px solid rgba(52,211,153,0.4);border-radius:8px;padding:4px 12px;font-size:0.75rem;font-weight:600;color:#34d399;white-space:nowrap;">Resultado</div>
+      <div style="font-size:0.83rem;color:#94a3b8;">f bajo de <span style="color:#a78bfa;font-family:JetBrains Mono,monospace;">{f_prev:.4g}</span> a <span style="color:#34d399;font-family:JetBrains Mono,monospace;">{f_curr:.4g}</span> — reduccion de <span style="color:#34d399;">{abs((f_curr-f_prev)/max(abs(f_prev),1e-10))*100:.2f}%</span></div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div style="background:rgba(251,191,36,0.2);border:1px solid rgba(251,191,36,0.4);border-radius:8px;padding:4px 12px;font-size:0.75rem;font-weight:600;color:#fbbf24;white-space:nowrap;">Error</div>
+      <div style="font-size:0.83rem;color:#94a3b8;">‖∇f‖ paso de <span style="color:#a78bfa;font-family:JetBrains Mono,monospace;">{g_prev_val:.2e}</span> a <span style="color:#34d399;font-family:JetBrains Mono,monospace;">{g_curr_val:.2e}</span>{'  — Convergio!' if g_curr_val < 1e-6 else ''}</div>
+    </div>
+
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+                # Mini gráfico de f(x) hasta esa iteración
+                fig_w, ax_w = plt.subplots(figsize=(10, 3))
+                fig_w.patch.set_facecolor("#07090f"); ax_w.set_facecolor("#0d1117")
+                fvals_all = np.array([h["f(x)"] for h in hist])
+                its_all   = np.array([h["iteración"] for h in hist])
+                ax_w.plot(its_all, fvals_all, color="#334155", lw=1.5, linestyle="--", alpha=0.4)
+                ax_w.plot(its_all[:iter_wolfe+1], fvals_all[:iter_wolfe+1],
+                          color="#a78bfa", lw=2.5, marker="o", ms=5,
+                          markerfacecolor="#07090f", markeredgecolor="#a78bfa", markeredgewidth=2)
+                ax_w.axvline(x=iter_wolfe, color="#fbbf24", lw=1.5, linestyle=":", alpha=0.9)
+                ax_w.plot(iter_wolfe, f_curr, "*", color="#fbbf24", ms=14, zorder=10)
+                ax_w.set_xlabel("Iteracion", color="#475569", fontsize=9)
+                ax_w.set_ylabel("f(x)", color="#475569", fontsize=9)
+                ax_w.set_title(f"Valor de f(x) — iteracion {iter_wolfe} marcada", color="#e2e8f0", fontsize=11, fontweight="bold")
+                ax_w.tick_params(colors="#334155", labelsize=8)
+                for s in ax_w.spines.values(): s.set_color("#1e293b")
+                ax_w.grid(True, alpha=0.3, color="#1e293b", linestyle="--")
+                fig_w.tight_layout(); st.pyplot(fig_w)
+                st.caption("La estrella amarilla marca la iteracion seleccionada. Arrastra el slider para ver como Wolfe fue reduciendo f(x) en cada paso.")
+
+                # Tabla resumen de todas las iteraciones
+                st.markdown("**Resumen de todas las iteraciones:**")
+                df_w = pd.DataFrame([{
+                    "Iter": h["iteración"],
+                    "f(x)": round(h["f(x)"], 6),
+                    "‖∇f‖": round(h["‖∇f‖"], 6),
+                    "Reduccion f": f"{abs((hist[i+1]['f(x)']-h['f(x)'])/max(abs(h['f(x)']),1e-10))*100:.2f}%" if i < len(hist)-1 else "—",
+                    "Convergio": "Si" if h["‖∇f‖"] < 1e-6 else "No"
+                } for i,h in enumerate(hist)])
+                st.dataframe(df_w, use_container_width=True, hide_index=True)
+
         # ── TAB COMPARADOR (opcional) ──
-        tab_offset = 0
         if res["comparacion"]:
-            tab_offset = 1
-            with tabs[1]:
+            with tabs[2]:
                 st.markdown("#### Comparacion de los 3 metodos")
                 comp=res["comparacion"]
                 col_names={"Gradiente":"#a78bfa","Gradiente conjugado":"#60a5fa","Newton":"#34d399"}
@@ -639,7 +748,7 @@ with right:
                     fig2.tight_layout(); st.pyplot(fig2)
 
         # ── TAB: Trayectoria 2D ──
-        with tabs[1+tab_offset]:
+        with tabs[2+tab_offset]:
             if res["n"]==2:
                 xs=np.array([h["x"] for h in res["history"]])
                 try:
@@ -741,7 +850,7 @@ with right:
                 st.info(f"La trayectoria 2D requiere exactamente 2 variables. Tu funcion tiene {res['n']}.")
 
         # ── TAB: Historial ──
-        with tabs[2+tab_offset]:
+        with tabs[3+tab_offset]:
             df=pd.DataFrame([{
                 "it.":h["iteración"],"f(x)":round(h["f(x)"],8),
                 "‖∇f‖":round(h["‖∇f‖"],8),
@@ -752,7 +861,7 @@ with right:
             st.download_button("Descargar CSV",csv,"historial_wolfex.csv","text/csv",use_container_width=True)
 
         # ── TAB: Explicación detallada ──
-        with tabs[3+tab_offset]:
+        with tabs[4+tab_offset]:
             st.markdown("### Explicacion completa")
             st.markdown(generar_explicacion(res), unsafe_allow_html=True)
             st.markdown("---")
