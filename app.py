@@ -986,25 +986,6 @@ Luego se verifica curvatura. Si alguna falla, α ← ρ·α y se repite.
                 fig_w.tight_layout(); st.pyplot(fig_w)
 
                 # ── Tabla resumen ──
-                # Panel de alpha aceptado
-                st.markdown("**Alpha (α) aceptado por Wolfe en cada iteracion:**")
-                alphas = [h.get("alpha", 0.0) for h in hist]
-                its_a  = [h["iteración"] for h in hist]
-
-                fig_a, ax_a = plt.subplots(figsize=(10, 2.5))
-                fig_a.patch.set_facecolor("#07090f"); ax_a.set_facecolor("#0d1117")
-                bars = ax_a.bar(its_a, alphas, color="#a78bfa", alpha=0.8, width=0.6)
-                # Marcar el seleccionado
-                if iter_w < len(bars):
-                    bars[iter_w].set_color("#fbbf24")
-                ax_a.set_xlabel("Iteracion", color="#475569", fontsize=9)
-                ax_a.set_ylabel("α aceptado", color="#475569", fontsize=9)
-                ax_a.set_title("Paso α que satisfizo Wolfe en cada iteracion", color="#e2e8f0", fontsize=11, fontweight="bold")
-                ax_a.tick_params(colors="#334155", labelsize=8)
-                for s in ax_a.spines.values(): s.set_color("#1e293b")
-                ax_a.grid(True, alpha=0.2, color="#1e293b", axis="y", linestyle="--")
-                fig_a.tight_layout(); st.pyplot(fig_a)
-
                 # Mostrar alpha de la iteracion seleccionada
                 alpha_sel = hist[iter_w].get("alpha", 0.0) if iter_w < len(hist) else 0.0
                 st.markdown(f"""
