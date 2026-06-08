@@ -23,8 +23,25 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 #MainMenu, footer, header { visibility: hidden; }
-.stApp { background: #07090f; }
+.stApp { background: #07090f !important; color: #e2e8f0 !important; }
 .block-container { padding: 0 !important; max-width: 100% !important; }
+/* Forzar tema oscuro en todos los elementos */
+p, li, span, div, label { color: #e2e8f0; }
+h1, h2, h3, h4, h5, h6 { color: #f1f5f9 !important; }
+.stMarkdown, .stText { color: #e2e8f0 !important; }
+[data-testid="stAppViewContainer"] { background: #07090f !important; }
+[data-testid="stHeader"] { background: transparent !important; }
+[data-testid="metric-container"] { background: #0d1117 !important; border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 12px !important; }
+[data-testid="metric-container"] label { color: #94a3b8 !important; }
+[data-testid="metric-container"] [data-testid="stMetricValue"] { color: #e2e8f0 !important; }
+.stTabs [data-baseweb="tab-list"] { background: #0d1117 !important; }
+.stTabs [data-baseweb="tab"] { color: #64748b !important; }
+.stTabs [aria-selected="true"] { color: #a78bfa !important; }
+.stDataFrame { background: #0d1117 !important; }
+.stInfo { background: rgba(96,165,250,0.1) !important; color: #93c5fd !important; border: 1px solid rgba(96,165,250,0.2) !important; }
+.stSuccess { background: rgba(52,211,153,0.1) !important; color: #6ee7b7 !important; }
+.stWarning { background: rgba(251,191,36,0.1) !important; color: #fcd34d !important; }
+.stError { background: rgba(248,113,113,0.1) !important; color: #fca5a5 !important; }
 
 .topbar {
     background: rgba(255,255,255,0.03);
