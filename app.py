@@ -157,6 +157,73 @@ caption, .caption { color: #64748b !important; }
 html, body, [class*="css"], * { font-family: 'Inter', sans-serif; }
 #MainMenu, footer, header { visibility: hidden; }
 
+/* ── BOTONES SIEMPRE OSCUROS ── */
+.stButton > button {
+    background: #1e293b !important;
+    color: #e2e8f0 !important;
+    border: 1px solid rgba(255,255,255,0.12) !important;
+    border-radius: 8px !important;
+}
+.stButton > button:hover {
+    background: #334155 !important;
+    color: #f1f5f9 !important;
+    border-color: rgba(255,255,255,0.2) !important;
+}
+.stButton > button[kind="primary"] {
+    background: linear-gradient(135deg, #7c3aed, #6366f1) !important;
+    color: white !important;
+    border: none !important;
+}
+.stButton > button[kind="primary"]:hover {
+    background: linear-gradient(135deg, #6d28d9, #4f46e5) !important;
+}
+
+/* ── INPUTS SIEMPRE OSCUROS ── */
+.stTextInput > div > div > input,
+.stNumberInput > div > div > input {
+    background: #1e293b !important;
+    color: #e2e8f0 !important;
+    border: 1px solid rgba(255,255,255,0.1) !important;
+    caret-color: #a78bfa !important;
+}
+.stTextInput > div > div > input::placeholder,
+.stNumberInput > div > div > input::placeholder {
+    color: #475569 !important;
+}
+
+/* ── SELECTBOX ── */
+.stSelectbox > div > div {
+    background: #1e293b !important;
+    color: #e2e8f0 !important;
+    border: 1px solid rgba(255,255,255,0.1) !important;
+}
+
+/* ── EXPANDER ── */
+.streamlit-expanderHeader {
+    background: #0d1117 !important;
+    color: #e2e8f0 !important;
+}
+.streamlit-expanderContent {
+    background: #0d1117 !important;
+}
+
+/* ── SLIDER ── */
+.stSlider > div > div > div > div {
+    background: #a78bfa !important;
+}
+
+/* ── FONDO TOTAL ── */
+body, .stApp, [data-testid="stAppViewContainer"], 
+[data-testid="stVerticalBlock"], .main .block-container,
+section.main, div.main {
+    background-color: #07090f !important;
+}
+
+/* ── TODO EL TEXTO ── */
+body *, .stApp *, [data-testid="stAppViewContainer"] *:not(svg):not(path) {
+    color: #e2e8f0;
+}
+
 .topbar {
     background: rgba(255,255,255,0.03);
     border-bottom: 1px solid rgba(255,255,255,0.06);
@@ -298,9 +365,9 @@ def run_opt(method, f, g, h, x0, max_iter, tol, a0, c1, c2, rho):
     reason="Máximo de iteraciones alcanzado"
     for k in range(max_iter+1):
         try: fx=f(x); gx=g(x)
-        except: reason="Dominio inválido."; break
+        except: reason="Divergencia: posible punto silla o funcion sin minimo. Intenta otro punto de partida."; break
         err=float(np.linalg.norm(gx))
-        hist.append({"iteración":k,"f(x)":fx,"‖∇f‖":err,"x":x.copy()})
+        hist.append({"iteración":k,"f(x)":fx,"‖∇f‖":err,"x":x.copy(),"alpha":0.0})
         if err<tol: reason="Convergencia: ‖∇f‖ < tolerancia"; break
         if k==max_iter: break
         if method=="Gradiente": d=-gx
@@ -316,8 +383,9 @@ def run_opt(method, f, g, h, x0, max_iter, tol, a0, c1, c2, rho):
             except: d=-np.linalg.pinv(H).dot(gx)
             if float(np.dot(gx,d))>=0: d=-gx
         a,_=wolfe_ls(f,g,x,d,a0,c1,c2,rho)
+        if hist: hist[-1]["alpha"] = float(a)
         xn=x+a*d; gp=gx.copy(); dp=d.copy(); x=xn
-        if not np.all(np.isfinite(x)): reason="Divergencia."; break
+        if not np.all(np.isfinite(x)): reason="Newton diverge: posible punto silla o funcion sin minimo. Intenta otro punto de partida."; break
     if not hist: raise ValueError("No se pudo evaluar en el punto inicial.")
     try: ff=f(x)
     except: ff=hist[-1]["f(x)"]; x=hist[-1]["x"]
@@ -636,9 +704,16 @@ with right:
 
     else:
         convergio="Convergencia" in res["reason"]
-        bstyle="background:rgba(52,211,153,.1);color:#34d399;border:1px solid rgba(52,211,153,.25);" if convergio \
-               else "background:rgba(251,191,36,.1);color:#fbbf24;border:1px solid rgba(251,191,36,.25);"
-        bicon="✅" if convergio else "⚠️"
+        divergio = "diverge" in res["reason"].lower() or "silla" in res["reason"].lower()
+        if convergio:
+            bstyle = "background:rgba(52,211,153,.1);color:#34d399;border:1px solid rgba(52,211,153,.25);"
+            bicon = "✅"
+        elif divergio:
+            bstyle = "background:rgba(248,113,113,.1);color:#f87171;border:1px solid rgba(248,113,113,.25);"
+            bicon = "⚠️"
+        else:
+            bstyle = "background:rgba(251,191,36,.1);color:#fbbf24;border:1px solid rgba(251,191,36,.25);"
+            bicon = "⚠️"
         st.markdown(f'<div style="border-radius:10px;padding:10px 16px;font-size:0.88rem;font-weight:600;margin-bottom:1rem;{bstyle}">{bicon} &nbsp;{res["reason"]}</div>', unsafe_allow_html=True)
 
         xstr=np.array2string(res["xmin"],precision=5,suppress_small=True)
@@ -911,6 +986,38 @@ Luego se verifica curvatura. Si alguna falla, α ← ρ·α y se repite.
                 fig_w.tight_layout(); st.pyplot(fig_w)
 
                 # ── Tabla resumen ──
+                # Panel de alpha aceptado
+                st.markdown("**Alpha (α) aceptado por Wolfe en cada iteracion:**")
+                alphas = [h.get("alpha", 0.0) for h in hist]
+                its_a  = [h["iteración"] for h in hist]
+
+                fig_a, ax_a = plt.subplots(figsize=(10, 2.5))
+                fig_a.patch.set_facecolor("#07090f"); ax_a.set_facecolor("#0d1117")
+                bars = ax_a.bar(its_a, alphas, color="#a78bfa", alpha=0.8, width=0.6)
+                # Marcar el seleccionado
+                if iter_w < len(bars):
+                    bars[iter_w].set_color("#fbbf24")
+                ax_a.set_xlabel("Iteracion", color="#475569", fontsize=9)
+                ax_a.set_ylabel("α aceptado", color="#475569", fontsize=9)
+                ax_a.set_title("Paso α que satisfizo Wolfe en cada iteracion", color="#e2e8f0", fontsize=11, fontweight="bold")
+                ax_a.tick_params(colors="#334155", labelsize=8)
+                for s in ax_a.spines.values(): s.set_color("#1e293b")
+                ax_a.grid(True, alpha=0.2, color="#1e293b", axis="y", linestyle="--")
+                fig_a.tight_layout(); st.pyplot(fig_a)
+
+                # Mostrar alpha de la iteracion seleccionada
+                alpha_sel = hist[iter_w].get("alpha", 0.0) if iter_w < len(hist) else 0.0
+                st.markdown(f"""
+<div style="background:#0d1117;border:1.5px solid rgba(251,191,36,0.4);border-radius:12px;padding:1rem 1.5rem;margin-bottom:1rem;">
+  <div style="font-size:0.75rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">Alpha aceptado en iteracion {iter_w}</div>
+  <div style="font-family:JetBrains Mono,monospace;font-size:1.6rem;color:#fbbf24;font-weight:700;">α = {alpha_sel:.6g}</div>
+  <div style="font-size:0.82rem;color:#64748b;margin-top:6px;">
+    Este es el tamano de paso que cumplio simultaneamente Armijo y curvatura.<br>
+    Desplazamiento real: ‖x⁽ᵏ⁺¹⁾ - x⁽ᵏ⁾‖ = {np.linalg.norm(x_k1 - x_k):.4e}
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
                 st.markdown("**Tabla resumen de todas las iteraciones:**")
                 df_w = pd.DataFrame([{
                     "k": h["iteración"],
